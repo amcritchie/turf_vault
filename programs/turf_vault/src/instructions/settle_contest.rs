@@ -1,0 +1,105 @@
+use anchor_lang::prelude::*;
+use crate::state::{VaultState, UserAccount, Contest, ContestEntry, ContestStatus, EntryStatus};
+use crate::errors::VaultError;
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct Settlement {
+    pub wallet: Pubkey,
+    pub entry_num: u32,
+    pub rank: u32,
+    pub payout: u64,
+}
+
+#[derive(Accounts)]
+pub struct SettleContest<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        seeds = [b"vault"],
+        bump = vault_state.bump,
+        constraint = vault_state.admin == admin.key() @ VaultError::Unauthorized,
+    )]
+    pub vault_state: Account<'info, VaultState>,
+
+    #[account(
+        mut,
+        constraint = contest.status == ContestStatus::Open || contest.status == ContestStatus::Locked @ VaultError::ContestAlreadySettled,
+    )]
+    pub contest: Account<'info, Contest>,
+
+    // Remaining accounts: pairs of [user_account, contest_entry] for each settlement
+}
+
+pub fn handle_settle_contest(ctx: Context<SettleContest>, settlements: Vec<Settlement>) -> Result<()> {
+    let contest = &mut ctx.accounts.contest;
+
+    // Validate total payouts don't exceed pool + bonus
+    let total_payouts: u64 = settlements
+        .iter()
+        .map(|s| s.payout)
+        .try_fold(0u64, |acc, p| acc.checked_add(p))
+        .ok_or(VaultError::Overflow)?;
+
+    let max_payout = contest
+        .prize_pool
+        .checked_add(contest.bonus)
+        .ok_or(VaultError::Overflow)?;
+    require!(total_payouts <= max_payout, VaultError::SettlementOverflow);
+
+    // Process each settlement via remaining accounts
+    let remaining = &ctx.remaining_accounts;
+    require!(remaining.len() == settlements.len() * 2, VaultError::Unauthorized);
+
+    for (i, settlement) in settlements.iter().enumerate() {
+        // Load user account
+        let user_account_info = &remaining[i * 2];
+        let entry_account_info = &remaining[i * 2 + 1];
+
+        // Verify PDA seeds for user account
+        let (expected_user_pda, _) = Pubkey::find_program_address(
+            &[b"user", settlement.wallet.as_ref()],
+            ctx.program_id,
+        );
+        require!(user_account_info.key() == expected_user_pda, VaultError::Unauthorized);
+
+        // Verify PDA seeds for entry
+        let (expected_entry_pda, _) = Pubkey::find_program_address(
+            &[
+                b"entry",
+                contest.contest_id.as_ref(),
+                settlement.wallet.as_ref(),
+                &settlement.entry_num.to_le_bytes(),
+            ],
+            ctx.program_id,
+        );
+        require!(entry_account_info.key() == expected_entry_pda, VaultError::Unauthorized);
+
+        // Deserialize and update user account
+        let mut user_data = user_account_info.try_borrow_mut_data()?;
+        let mut user: UserAccount =
+            UserAccount::try_deserialize(&mut &user_data[..])?;
+        user.balance = user.balance.checked_add(settlement.payout).ok_or(VaultError::Overflow)?;
+        user.total_won = user.total_won.checked_add(settlement.payout).ok_or(VaultError::Overflow)?;
+        let mut writer = &mut user_data[..];
+        user.try_serialize(&mut writer)?;
+
+        // Deserialize and update entry
+        let mut entry_data = entry_account_info.try_borrow_mut_data()?;
+        let mut entry: ContestEntry =
+            ContestEntry::try_deserialize(&mut &entry_data[..])?;
+        entry.rank = settlement.rank;
+        entry.payout = settlement.payout;
+        entry.status = if settlement.payout > 0 {
+            EntryStatus::Won
+        } else {
+            EntryStatus::Lost
+        };
+        let mut writer = &mut entry_data[..];
+        entry.try_serialize(&mut writer)?;
+    }
+
+    contest.status = ContestStatus::Settled;
+    msg!("Contest settled. {} entries processed", settlements.len());
+    Ok(())
+}
