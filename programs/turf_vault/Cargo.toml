@@ -1,7 +1,7 @@
 [package]
 name = "turf_vault"
 version = "0.1.0"
-description = "Created with Anchor"
+description = "Solana escrow program for contest entry fees and prize distribution"
 edition = "2021"
 
 [lib]
