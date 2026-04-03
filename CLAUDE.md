@@ -181,7 +181,7 @@ bin/rails solana:init_vault INIT=true ADMIN_BACKUP=<backup_admin_base58>
 - **USDT Mint**: `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` (test, 6 decimals)
 - **IDL Account**: `DCP2XRu8ZwzsCpXBgu5xa4vTYdYQhKUZRU49iJuFv8Lf`
 
-**Note**: Deployment pending — program needs to be re-deployed with v0.2.0, old vault force-closed, and new vault initialized with dual admin.
+**Status**: v0.2.0 deployed. Old vault force-closed, new vault initialized with dual admin. Mint authorities (USDC + USDT) transferred to Alex Bot.
 
 ## Versioning Protocol
 
