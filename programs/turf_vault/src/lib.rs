@@ -33,10 +33,10 @@ pub mod turf_vault {
         contest_id: [u8; 32],
         entry_fee: u64,
         max_entries: u32,
-        payout_bps: Vec<u16>,
+        payout_amounts: Vec<u64>,
         bonus: u64,
     ) -> Result<()> {
-        handle_create_contest(ctx, contest_id, entry_fee, max_entries, payout_bps, bonus)
+        handle_create_contest(ctx, contest_id, entry_fee, max_entries, payout_amounts, bonus)
     }
 
     pub fn enter_contest(ctx: Context<EnterContest>, entry_num: u32) -> Result<()> {

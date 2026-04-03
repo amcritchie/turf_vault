@@ -32,12 +32,12 @@ pub fn handle_create_contest(
     contest_id: [u8; 32],
     entry_fee: u64,
     max_entries: u32,
-    payout_bps: Vec<u16>,
+    payout_amounts: Vec<u64>,
     bonus: u64,
 ) -> Result<()> {
-    // Validate payout_bps sum <= 10000 (100%)
-    let total_bps: u32 = payout_bps.iter().map(|&b| b as u32).sum();
-    require!(total_bps <= 10_000, VaultError::InvalidPayoutTiers);
+    // Validate payout_amounts sum == bonus
+    let total_payouts: u64 = payout_amounts.iter().sum();
+    require!(total_payouts == bonus, VaultError::InvalidPayoutTiers);
 
     let contest = &mut ctx.accounts.contest;
     contest.contest_id = contest_id;
@@ -47,7 +47,7 @@ pub fn handle_create_contest(
     contest.prize_pool = 0;
     contest.bonus = bonus;
     contest.status = ContestStatus::Open;
-    contest.payout_bps = payout_bps;
+    contest.payout_amounts = payout_amounts;
     contest.admin = ctx.accounts.admin.key();
     contest.bump = ctx.bumps.contest;
 

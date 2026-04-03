@@ -40,7 +40,7 @@ pub struct Contest {
     pub bonus: u64,            // admin-funded bonus on top of pool
     pub status: ContestStatus,
     #[max_len(10)]
-    pub payout_bps: Vec<u16>,  // basis points per rank (e.g. [3000, 2000, ...])
+    pub payout_amounts: Vec<u64>,  // USDC amounts per rank (6 decimals, e.g. [40_000000])
     pub admin: Pubkey,
     pub bump: u8,
 }

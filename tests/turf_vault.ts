@@ -260,17 +260,17 @@ describe("turf_vault", () => {
         program.programId
       );
 
-      const entryFee = toTokenAmount(0.20); // $0.20
-      const maxEntries = 100;
-      const payoutBps = [3000, 1400, 1400, 1400, 1400, 1400]; // 30% + 14% x 5 = 100%
-      const bonus = toTokenAmount(5); // $5 admin bonus
+      const entryFee = toTokenAmount(9); // $9
+      const maxEntries = 5;
+      const payoutAmounts = [new anchor.BN(toTokenAmount(40))]; // Small format: 1st gets $40
+      const bonus = toTokenAmount(40); // $40 guarantee
 
       await program.methods
         .createContest(
           Array.from(contestId) as any,
           new anchor.BN(entryFee),
           maxEntries,
-          payoutBps,
+          payoutAmounts,
           new anchor.BN(bonus)
         )
         .accountsStrict({
@@ -301,10 +301,10 @@ describe("turf_vault", () => {
         await program.methods
           .createContest(
             Array.from(fakeContestId) as any,
-            new anchor.BN(toTokenAmount(1)),
-            10,
-            [10000],
-            new anchor.BN(0)
+            new anchor.BN(toTokenAmount(9)),
+            5,
+            [new anchor.BN(toTokenAmount(40))],
+            new anchor.BN(toTokenAmount(40))
           )
           .accountsStrict({
             admin: user1.publicKey,
@@ -364,11 +364,11 @@ describe("turf_vault", () => {
 
       // User balance decreased by entry fee
       expect(userAfter.balance.toNumber()).to.equal(
-        userBefore.balance.toNumber() - toTokenAmount(0.20)
+        userBefore.balance.toNumber() - toTokenAmount(9)
       );
       // Contest pool increased
       expect(contest.currentEntries).to.equal(1);
-      expect(contest.prizePool.toNumber()).to.equal(toTokenAmount(0.20));
+      expect(contest.prizePool.toNumber()).to.equal(toTokenAmount(9));
       // Entry created
       expect(entry.wallet.toBase58()).to.equal(user1.publicKey.toBase58());
       expect(entry.entryNum).to.equal(entryNum);
@@ -411,7 +411,7 @@ describe("turf_vault", () => {
 
       const contest = await program.account.contest.fetch(contestPda);
       expect(contest.currentEntries).to.equal(2);
-      expect(contest.prizePool.toNumber()).to.equal(toTokenAmount(0.40));
+      expect(contest.prizePool.toNumber()).to.equal(toTokenAmount(18));
     });
 
     it("rejects entry with insufficient balance", async () => {
@@ -498,11 +498,11 @@ describe("turf_vault", () => {
       const user1Before = await program.account.userAccount.fetch(user1AccountPda);
       const user2Before = await program.account.userAccount.fetch(user2AccountPda);
 
-      // Contest pool = $0.40, bonus = $5.00, total = $5.40
-      // user1 rank 1 gets $3.00, user2 rank 2 gets $2.00
+      // Contest pool = $18 (2×$9), bonus = $40, total = $58
+      // user1 rank 1 gets $40 (Small format payout), user2 rank 2 gets $0
       const settlements = [
-        { wallet: user1.publicKey, entryNum: 1, rank: 1, payout: new anchor.BN(toTokenAmount(3)) },
-        { wallet: user2.publicKey, entryNum: 1, rank: 2, payout: new anchor.BN(toTokenAmount(2)) },
+        { wallet: user1.publicKey, entryNum: 1, rank: 1, payout: new anchor.BN(toTokenAmount(40)) },
+        { wallet: user2.publicKey, entryNum: 1, rank: 2, payout: new anchor.BN(toTokenAmount(0)) },
       ];
 
       await program.methods
@@ -525,11 +525,11 @@ describe("turf_vault", () => {
       const contest = await program.account.contest.fetch(contestPda);
 
       expect(user1After.balance.toNumber()).to.equal(
-        user1Before.balance.toNumber() + toTokenAmount(3)
+        user1Before.balance.toNumber() + toTokenAmount(40)
       );
-      expect(user1After.totalWon.toNumber()).to.equal(toTokenAmount(3));
+      expect(user1After.totalWon.toNumber()).to.equal(toTokenAmount(40));
       expect(user2After.balance.toNumber()).to.equal(
-        user2Before.balance.toNumber() + toTokenAmount(2)
+        user2Before.balance.toNumber()
       );
       expect(JSON.stringify(contest.status)).to.equal(JSON.stringify({ settled: {} }));
 
@@ -538,8 +538,8 @@ describe("turf_vault", () => {
       const user2Entry = await program.account.contestEntry.fetch(user2EntryPda);
       expect(JSON.stringify(user1Entry.status)).to.equal(JSON.stringify({ won: {} }));
       expect(user1Entry.rank).to.equal(1);
-      expect(user1Entry.payout.toNumber()).to.equal(toTokenAmount(3));
-      expect(JSON.stringify(user2Entry.status)).to.equal(JSON.stringify({ won: {} }));
+      expect(user1Entry.payout.toNumber()).to.equal(toTokenAmount(40));
+      expect(JSON.stringify(user2Entry.status)).to.equal(JSON.stringify({ lost: {} }));
       expect(user2Entry.rank).to.equal(2);
     });
 
@@ -575,9 +575,9 @@ describe("turf_vault", () => {
       await program.methods
         .createContest(
           Array.from(newContestId) as any,
-          new anchor.BN(toTokenAmount(1)),
-          10,
-          [10000],
+          new anchor.BN(toTokenAmount(9)),
+          5,
+          [],
           new anchor.BN(0)
         )
         .accountsStrict({
@@ -706,9 +706,9 @@ describe("turf_vault", () => {
       await program.methods
         .createContest(
           Array.from(freshContestId) as any,
-          new anchor.BN(toTokenAmount(1)),
-          10,
-          [10000],
+          new anchor.BN(toTokenAmount(9)),
+          5,
+          [],
           new anchor.BN(0)
         )
         .accountsStrict({

@@ -147,6 +147,15 @@ anchor deploy --provider.cluster devnet
 solana program show 7Hy8GmJWPMdt6bx3VG4BLFnpNX9TBwkPt87W6bkHgr2J
 ```
 
+### Current Deployment (Devnet)
+
+- **Program ID**: `7Hy8GmJWPMdt6bx3VG4BLFnpNX9TBwkPt87W6bkHgr2J`
+- **Vault PDA**: `7z313HTVNcxhvCBkkDQv794RpXeRrfCLb5WJ4dFAQQeh`
+- **Admin**: `9Fy8P3DvKBh3awt1wr27g4CDh47oDqmJR2FAAQ1bc69D`
+- **USDC Mint**: `222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9` (test, 6 decimals)
+- **USDT Mint**: `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` (test, 6 decimals)
+- **IDL Account**: `DCP2XRu8ZwzsCpXBgu5xa4vTYdYQhKUZRU49iJuFv8Lf`
+
 ## Versioning Protocol
 
 - **Semantic versioning** in `programs/turf_vault/Cargo.toml`
@@ -162,7 +171,7 @@ solana program show 7Hy8GmJWPMdt6bx3VG4BLFnpNX9TBwkPt87W6bkHgr2J
 
 ## Integration with Turf Monster
 
-The Rails app calls TurfVault through a `Solana::Vault` service layer (planned):
+The Rails app calls TurfVault through a `Solana::Vault` service layer:
 
 - **Contest ID**: SHA256 hash of the contest slug (e.g. `"turf-totals-v1-matchday-1"` → 32-byte array)
 - **Entry num**: Sequential integer per user per contest

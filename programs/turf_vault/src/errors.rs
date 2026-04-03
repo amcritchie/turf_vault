@@ -22,6 +22,6 @@ pub enum VaultError {
     SettlementOverflow,
     #[msg("Arithmetic overflow")]
     Overflow,
-    #[msg("Invalid payout tiers configuration")]
+    #[msg("Payout amounts must sum to bonus amount")]
     InvalidPayoutTiers,
 }
