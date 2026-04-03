@@ -20,7 +20,7 @@ pub struct Initialize<'info> {
     pub usdt_mint: Account<'info, Mint>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = admin,
         token::mint = usdc_mint,
         token::authority = vault_state,
@@ -30,7 +30,7 @@ pub struct Initialize<'info> {
     pub vault_usdc: Account<'info, TokenAccount>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = admin,
         token::mint = usdt_mint,
         token::authority = vault_state,
@@ -44,15 +44,16 @@ pub struct Initialize<'info> {
     pub rent: Sysvar<'info, Rent>,
 }
 
-pub fn handle_initialize(ctx: Context<Initialize>) -> Result<()> {
+pub fn handle_initialize(ctx: Context<Initialize>, admin_backup: Pubkey) -> Result<()> {
     let vault = &mut ctx.accounts.vault_state;
     vault.admin = ctx.accounts.admin.key();
+    vault.admin_backup = admin_backup;
     vault.usdc_mint = ctx.accounts.usdc_mint.key();
     vault.usdt_mint = ctx.accounts.usdt_mint.key();
     vault.vault_usdc = ctx.accounts.vault_usdc.key();
     vault.vault_usdt = ctx.accounts.vault_usdt.key();
     vault.bump = ctx.bumps.vault_state;
 
-    msg!("Vault initialized. Admin: {}", vault.admin);
+    msg!("Vault initialized. Admin: {}, Backup: {}", vault.admin, vault.admin_backup);
     Ok(())
 }

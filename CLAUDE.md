@@ -8,29 +8,46 @@ Anchor smart contract for contest escrow on Solana. Backend for Turf Monster (Ra
 - **Framework**: Anchor 0.32.1
 - **Rust**: 1.89.0 (via `rust-toolchain.toml`)
 - **Network**: Localnet (dev), Devnet (staging)
-- **Admin keypair**: `~/.config/solana/id.json`
+- **Version**: 0.2.0
 
 ## File Layout
 
 ```
 programs/turf_vault/src/
-├── lib.rs              # Program entry — 8 instruction handlers (thin wrappers)
-├── state.rs            # 4 account structs + 2 enums
+├── lib.rs              # Program entry — 10 instruction handlers (thin wrappers)
+├── state.rs            # 4 account structs + 2 enums + VaultState::is_admin()
 ├── errors.rs           # 11 error codes (VaultError enum)
 └── instructions/
     ├── mod.rs           # Re-exports all instruction modules
-    ├── initialize.rs    # Vault setup, token account init
+    ├── initialize.rs    # Vault setup, token account init, accepts admin_backup
     ├── create_user_account.rs
     ├── deposit.rs       # User → vault token transfer via CPI
     ├── withdraw.rs      # Vault → user token transfer via PDA signer
     ├── create_contest.rs
     ├── enter_contest.rs # Debit balance, build prize pool
     ├── settle_contest.rs # remaining_accounts pattern, manual PDA verify
-    └── close_contest.rs
+    ├── close_contest.rs
+    └── force_close_vault.rs # Migration-only: closes old vault for re-init
 tests/
-└── turf_vault.ts       # 19 test cases covering all instructions + errors
+└── turf_vault.ts       # 20 test cases covering all instructions + dual admin
 Anchor.toml             # Program ID, cluster config, test script
 ```
+
+## Dual Admin System
+
+VaultState stores both `admin` (primary) and `admin_backup` pubkeys. The `is_admin()` helper checks both:
+
+```rust
+pub fn is_admin(&self, key: &Pubkey) -> bool {
+    self.admin == *key || self.admin_backup == *key
+}
+```
+
+- **Primary admin (Alex Bot)**: `F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ` — used for all operations (create, lock, settle)
+- **Backup admin (Alex Human)**: `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr` — recovery key only
+- `initialize` accepts `admin_backup: Pubkey` argument
+- `create_contest`, `settle_contest`, `close_contest` all use `vault_state.is_admin()` constraint
+- `force_close_vault` reads admin from raw bytes (for migrating old-schema vaults)
 
 ## Anchor Patterns
 
@@ -60,7 +77,7 @@ This pattern avoids Anchor's account resolution limits for variable-length settl
 
 ### Account Sizing
 
-All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout_bps: Vec<u16>` (max 10 payout tiers).
+All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout_amounts: Vec<u64>` (max 10 payout tiers).
 
 ## State Model
 
@@ -70,7 +87,7 @@ All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout
 
 ### Key Constraints
 - All token amounts: `u64` with 6 decimals (1 USDC = 1_000_000)
-- `payout_bps` sum must be ≤ 10,000 (100%)
+- `payout_amounts` sum must equal `bonus` (validated in create_contest)
 - Settlement total payouts must be ≤ prize_pool + bonus
 - All arithmetic uses `checked_add`/`checked_sub`
 
@@ -88,7 +105,7 @@ All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout
 | 6007 | DuplicateEntry | Same entry_num (PDA collision) |
 | 6008 | SettlementOverflow | Payouts > pool + bonus |
 | 6009 | Overflow | Arithmetic overflow |
-| 6010 | InvalidPayoutTiers | Bad payout_bps config |
+| 6010 | InvalidPayoutTiers | Bad payout_amounts config |
 
 ## Testing
 
@@ -97,37 +114,20 @@ All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout
 anchor test
 ```
 
+20 tests covering: initialize (with admin_backup), create_user_account, deposit (USDC/USDT + invalid mint), create_contest (admin + non-admin rejection), enter_contest (2 users + insufficient balance), settle_contest (payouts + already-settled + non-admin), withdraw (success + insufficient balance), close_contest (settled + unsettled), backup admin (can create contest).
+
 ### Test Setup Pattern
 ```typescript
-// Create mint with 6 decimals
-const usdcMint = await createMint(provider.connection, admin, admin.publicKey, null, 6);
-
-// Derive PDAs
-const [vaultPda] = PublicKey.findProgramAddressSync([Buffer.from("vault")], program.programId);
-const [userAccountPda] = PublicKey.findProgramAddressSync(
-  [Buffer.from("user"), wallet.publicKey.toBuffer()],
-  program.programId
-);
-
-// Contest ID from slug
-const contestId = Array.from(
-  createHash("sha256").update("turf-totals-v1-matchday-1").digest()
-);
-```
-
-### Settlement Test Pattern
-```typescript
-// Build remaining accounts for settlement
-const remainingAccounts = settlements.map(s => [
-  { pubkey: userAccountPda, isWritable: true, isSigner: false },
-  { pubkey: entryPda, isWritable: true, isSigner: false },
-]).flat();
-
+// Initialize with backup admin
 await program.methods
-  .settleContest(settlements)
-  .accounts({ admin: admin.publicKey, vaultState: vaultPda, contest: contestPda })
-  .remainingAccounts(remainingAccounts)
+  .initialize(adminBackup.publicKey)
+  .accountsStrict({ ... })
   .rpc();
+
+// Verify both admin fields
+const vault = await program.account.vaultState.fetch(vaultStatePda);
+expect(vault.admin.toBase58()).to.equal(admin.publicKey.toBase58());
+expect(vault.adminBackup.toBase58()).to.equal(adminBackup.publicKey.toBase58());
 ```
 
 ## Build & Deploy
@@ -147,14 +147,41 @@ anchor deploy --provider.cluster devnet
 solana program show 7Hy8GmJWPMdt6bx3VG4BLFnpNX9TBwkPt87W6bkHgr2J
 ```
 
+### Devnet SOL Faucet Protocol
+
+Follow this sequence when SOL is needed. Move to the next step only if the current one fails.
+
+| Step | Method | Command / URL | Notes |
+|------|--------|---------------|-------|
+| 1 | **PoW faucet** | `devnet-pow mine --target-lamports <amount> -ud` | Preferred. Consistent, no rate limits. Install: `cargo install devnet-pow`. If public RPC times out, pass `-u <rpc_url>` with a provider endpoint. |
+| 2 | **QuickNode faucet** | https://faucet.quicknode.com/solana/devnet | Web UI, no account required. Paste wallet address. |
+| 3 | **Solana Foundation faucet** | https://faucet.solana.com | Web UI. Select Devnet, paste address. |
+| 4 | **CLI airdrop** | `solana airdrop <amount> --url devnet` | Last resort — frequently rate-limited. Try smaller amounts (0.5 SOL). |
+| 5 | **Transfer from funded wallet** | `solana transfer <to> <amount> --url devnet` | If another project wallet has spare SOL. |
+
+**Never rely solely on `solana airdrop`** — it rate-limits aggressively and fails silently under devnet load.
+
+### Migration (Re-initialization)
+
+When the VaultState schema changes (e.g. adding `admin_backup`), the old account must be closed first:
+
+```bash
+# From Rails app:
+bin/rails solana:init_vault FORCE_CLOSE=true
+bin/rails solana:init_vault INIT=true ADMIN_BACKUP=<backup_admin_base58>
+```
+
 ### Current Deployment (Devnet)
 
 - **Program ID**: `7Hy8GmJWPMdt6bx3VG4BLFnpNX9TBwkPt87W6bkHgr2J`
 - **Vault PDA**: `7z313HTVNcxhvCBkkDQv794RpXeRrfCLb5WJ4dFAQQeh`
-- **Admin**: `9Fy8P3DvKBh3awt1wr27g4CDh47oDqmJR2FAAQ1bc69D`
+- **Admin (primary)**: Alex Bot — `F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ`
+- **Admin (backup)**: Alex Human — `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`
 - **USDC Mint**: `222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9` (test, 6 decimals)
 - **USDT Mint**: `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` (test, 6 decimals)
 - **IDL Account**: `DCP2XRu8ZwzsCpXBgu5xa4vTYdYQhKUZRU49iJuFv8Lf`
+
+**Note**: Deployment pending — program needs to be re-deployed with v0.2.0, old vault force-closed, and new vault initialized with dual admin.
 
 ## Versioning Protocol
 
@@ -177,14 +204,16 @@ The Rails app calls TurfVault through a `Solana::Vault` service layer:
 - **Entry num**: Sequential integer per user per contest
 - **Settlement**: Rails grades contest → builds settlement array → calls settle_contest
 - **Token amounts**: Rails stores cents (integer), Solana stores 6-decimal u64. Convert: `amount_cents * 10_000` (cents → 6 decimals)
+- **Admin key**: `SOLANA_ADMIN_KEY` env var (base58 private key of Alex Bot)
 
 ## Key Design Decisions
 
 - **Custodial entry**: `enter_contest` separates payer (signer) from wallet (entry owner) — enables server-side entry on behalf of users
 - **No lock instruction**: Contest can go directly from Open to Settled (Locked status exists but no instruction sets it yet)
-- **Single admin**: One admin per vault, set at initialization. All contest ops require this admin
+- **Dual admin**: Primary admin for operations, backup admin for recovery. Both can perform any admin action.
 - **Dual mint**: USDC + USDT supported from day one, separate vault token accounts
 - **Manual settlement**: No on-chain scoring — Rails computes results, admin submits final rankings
+- **force_close_vault**: Migration instruction that reads admin from raw bytes (avoids deserialization of old schema)
 
 ## Code Style
 

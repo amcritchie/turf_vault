@@ -12,8 +12,12 @@ declare_id!("7Hy8GmJWPMdt6bx3VG4BLFnpNX9TBwkPt87W6bkHgr2J");
 pub mod turf_vault {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        handle_initialize(ctx)
+    pub fn initialize(ctx: Context<Initialize>, admin_backup: Pubkey) -> Result<()> {
+        handle_initialize(ctx, admin_backup)
+    }
+
+    pub fn force_close_vault(ctx: Context<ForceCloseVault>) -> Result<()> {
+        handle_force_close_vault(ctx)
     }
 
     pub fn create_user_account(ctx: Context<CreateUserAccount>, wallet: Pubkey) -> Result<()> {

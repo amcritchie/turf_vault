@@ -4,11 +4,18 @@ use anchor_lang::prelude::*;
 #[derive(InitSpace)]
 pub struct VaultState {
     pub admin: Pubkey,
+    pub admin_backup: Pubkey,
     pub usdc_mint: Pubkey,
     pub usdt_mint: Pubkey,
     pub vault_usdc: Pubkey,
     pub vault_usdt: Pubkey,
     pub bump: u8,
+}
+
+impl VaultState {
+    pub fn is_admin(&self, key: &Pubkey) -> bool {
+        self.admin == *key || self.admin_backup == *key
+    }
 }
 
 #[account]

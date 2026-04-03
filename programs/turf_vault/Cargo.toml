@@ -1,6 +1,6 @@
 [package]
 name = "turf_vault"
-version = "0.1.0"
+version = "0.2.0"
 description = "Solana escrow program for contest entry fees and prize distribution"
 edition = "2021"
 
@@ -21,7 +21,7 @@ custom-panic = []
 
 
 [dependencies]
-anchor-lang = "0.32.1"
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 anchor-spl = "0.32.1"
 
 

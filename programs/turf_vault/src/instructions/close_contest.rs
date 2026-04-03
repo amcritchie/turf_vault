@@ -10,7 +10,7 @@ pub struct CloseContest<'info> {
     #[account(
         seeds = [b"vault"],
         bump = vault_state.bump,
-        constraint = vault_state.admin == admin.key() @ VaultError::Unauthorized,
+        constraint = vault_state.is_admin(&admin.key()) @ VaultError::Unauthorized,
     )]
     pub vault_state: Account<'info, VaultState>,
 

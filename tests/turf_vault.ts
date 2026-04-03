@@ -23,6 +23,7 @@ describe("turf_vault", () => {
   // Test keypairs
   let user1: Keypair;
   let user2: Keypair;
+  let adminBackup: Keypair;
 
   // Token mints
   let usdcMint: PublicKey;
@@ -48,9 +49,10 @@ describe("turf_vault", () => {
     // Create test users and fund them
     user1 = Keypair.generate();
     user2 = Keypair.generate();
+    adminBackup = Keypair.generate();
 
     // Airdrop SOL to users
-    for (const user of [user1, user2]) {
+    for (const user of [user1, user2, adminBackup]) {
       const sig = await connection.requestAirdrop(user.publicKey, 10 * LAMPORTS_PER_SOL);
       await connection.confirmTransaction(sig);
     }
@@ -78,7 +80,7 @@ describe("turf_vault", () => {
   describe("initialize", () => {
     it("initializes the vault", async () => {
       await program.methods
-        .initialize()
+        .initialize(adminBackup.publicKey)
         .accountsStrict({
           admin: admin.publicKey,
           vaultState: vaultStatePda,
@@ -94,6 +96,7 @@ describe("turf_vault", () => {
 
       const vault = await program.account.vaultState.fetch(vaultStatePda);
       expect(vault.admin.toBase58()).to.equal(admin.publicKey.toBase58());
+      expect(vault.adminBackup.toBase58()).to.equal(adminBackup.publicKey.toBase58());
       expect(vault.usdcMint.toBase58()).to.equal(usdcMint.toBase58());
       expect(vault.usdtMint.toBase58()).to.equal(usdtMint.toBase58());
     });
@@ -732,6 +735,37 @@ describe("turf_vault", () => {
       } catch (err) {
         expect(err.toString()).to.contain("ContestNotSettled");
       }
+    });
+  });
+
+  describe("backup admin", () => {
+    it("backup admin can create a contest", async () => {
+      const backupContestId = createHash("sha256").update("backup-admin-test").digest();
+      const [backupContestPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("contest"), backupContestId],
+        program.programId
+      );
+
+      await program.methods
+        .createContest(
+          Array.from(backupContestId) as any,
+          new anchor.BN(toTokenAmount(9)),
+          5,
+          [],
+          new anchor.BN(0)
+        )
+        .accountsStrict({
+          admin: adminBackup.publicKey,
+          vaultState: vaultStatePda,
+          contest: backupContestPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([adminBackup])
+        .rpc();
+
+      const contest = await program.account.contest.fetch(backupContestPda);
+      expect(contest.entryFee.toNumber()).to.equal(toTokenAmount(9));
+      expect(contest.admin.toBase58()).to.equal(adminBackup.publicKey.toBase58());
     });
   });
 });
