@@ -8,7 +8,7 @@ Anchor smart contract for contest escrow on Solana. Backend for Turf Monster (Ra
 - **Framework**: Anchor 0.32.1
 - **Rust**: 1.89.0 (via `rust-toolchain.toml`)
 - **Network**: Localnet (dev), Devnet (staging)
-- **Version**: 0.4.0
+- **Version**: 0.5.0
 
 ## File Layout
 
@@ -85,6 +85,9 @@ All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout
 ### Enums
 - `ContestStatus`: Open → Locked → Settled
 - `EntryStatus`: Active → Won / Lost
+
+### UserAccount Fields
+- `wallet`, `balance`, `total_deposited`, `total_withdrawn`, `total_won`, `seeds` (u64, 25 per entry), `bump`
 
 ### Contest Fields
 - `contest_id`, `entry_fee`, `max_entries`, `current_entries`, `prize_pool`, `bonus`, `status`, `payout_amounts` (Vec, max 10), `admin` (payer pubkey), `creator` (bonus funder pubkey), `bump`
@@ -185,7 +188,7 @@ bin/rails solana:init_vault INIT=true ADMIN_BACKUP=<backup_admin_base58>
 - **USDT Mint**: `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` (test, 6 decimals)
 - **IDL Account**: `DCP2XRu8ZwzsCpXBgu5xa4vTYdYQhKUZRU49iJuFv8Lf`
 
-**Status**: v0.4.0 deployed on devnet. Vault re-initialized with dual admin. Mint authorities (USDC + USDT) transferred to Alex Bot.
+**Status**: v0.5.0 deployed on devnet. Seeds field added to UserAccount (25 per entry). Vault re-initialized. Mint authorities (USDC + USDT) transferred to Alex Bot.
 
 ## Versioning Protocol
 
@@ -213,11 +216,12 @@ The Rails app calls TurfVault through a `Solana::Vault` service layer:
 ## Key Design Decisions
 
 - **Managed entry** (`enter_contest`): Separates payer (admin signer) from wallet (entry owner) — deducts from UserAccount PDA balance. For server-managed wallets.
-- **Direct entry** (`enter_contest_direct`): User signs USDC transfer from their own wallet ATA to vault. Admin pays PDA rent so user only spends USDC. For Phantom wallets. Added in v0.3.0.
+- **Direct entry** (`enter_contest_direct`): User signs USDC transfer from their own wallet ATA to vault. Admin pays PDA rent so user only spends USDC. For Phantom wallets. Added in v0.3.0. Requires `user_account` PDA (for seeds award) since v0.5.0.
 - **Hard escrow contest creation** (`create_contest` v0.4.0): Dual-signer — `payer` (admin bot, pays SOL rent) + `creator` (Phantom wallet, signs bonus USDC transfer from creator ATA → vault). Contest struct stores `creator` pubkey. If bonus is 0, no transfer occurs but token accounts are still required.
 - **No lock instruction**: Contest can go directly from Open to Settled (Locked status exists but no instruction sets it yet)
 - **Dual admin**: Primary admin for operations, backup admin for recovery. Both can perform any admin action.
 - **Dual mint**: USDC + USDT supported from day one, separate vault token accounts
+- **Seeds system** (v0.5.0): Both `enter_contest` and `enter_contest_direct` award 25 seeds to the user's `UserAccount` PDA. Seeds are on-chain only — Rails reads them via `sync_balance` and derives levels in the UI (`level = seeds / 100 + 1`).
 - **Manual settlement**: No on-chain scoring — Rails computes results, admin submits final rankings
 - **force_close_vault**: Migration instruction that reads admin from raw bytes (avoids deserialization of old schema)
 
