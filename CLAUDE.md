@@ -8,13 +8,13 @@ Anchor smart contract for contest escrow on Solana. Backend for Turf Monster (Ra
 - **Framework**: Anchor 0.32.1
 - **Rust**: 1.89.0 (via `rust-toolchain.toml`)
 - **Network**: Localnet (dev), Devnet (staging)
-- **Version**: 0.2.0
+- **Version**: 0.3.0
 
 ## File Layout
 
 ```
 programs/turf_vault/src/
-├── lib.rs              # Program entry — 10 instruction handlers (thin wrappers)
+├── lib.rs              # Program entry — 11 instruction handlers (thin wrappers)
 ├── state.rs            # 4 account structs + 2 enums + VaultState::is_admin()
 ├── errors.rs           # 11 error codes (VaultError enum)
 └── instructions/
@@ -24,7 +24,8 @@ programs/turf_vault/src/
     ├── deposit.rs       # User → vault token transfer via CPI
     ├── withdraw.rs      # Vault → user token transfer via PDA signer
     ├── create_contest.rs
-    ├── enter_contest.rs # Debit balance, build prize pool
+    ├── enter_contest.rs # Debit PDA balance, build prize pool (managed wallets)
+    ├── enter_contest_direct.rs # User signs USDC transfer from wallet ATA (Phantom wallets)
     ├── settle_contest.rs # remaining_accounts pattern, manual PDA verify
     ├── close_contest.rs
     └── force_close_vault.rs # Migration-only: closes old vault for re-init
@@ -181,7 +182,7 @@ bin/rails solana:init_vault INIT=true ADMIN_BACKUP=<backup_admin_base58>
 - **USDT Mint**: `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` (test, 6 decimals)
 - **IDL Account**: `DCP2XRu8ZwzsCpXBgu5xa4vTYdYQhKUZRU49iJuFv8Lf`
 
-**Status**: v0.2.0 deployed. Old vault force-closed, new vault initialized with dual admin. Mint authorities (USDC + USDT) transferred to Alex Bot.
+**Status**: v0.3.0 built (pending deploy). v0.2.0 deployed on devnet. Vault initialized with dual admin. Mint authorities (USDC + USDT) transferred to Alex Bot.
 
 ## Versioning Protocol
 
@@ -208,7 +209,8 @@ The Rails app calls TurfVault through a `Solana::Vault` service layer:
 
 ## Key Design Decisions
 
-- **Custodial entry**: `enter_contest` separates payer (signer) from wallet (entry owner) — enables server-side entry on behalf of users
+- **Managed entry** (`enter_contest`): Separates payer (admin signer) from wallet (entry owner) — deducts from UserAccount PDA balance. For server-managed wallets.
+- **Direct entry** (`enter_contest_direct`): User signs USDC transfer from their own wallet ATA to vault. Admin pays PDA rent so user only spends USDC. For Phantom wallets. Added in v0.3.0.
 - **No lock instruction**: Contest can go directly from Open to Settled (Locked status exists but no instruction sets it yet)
 - **Dual admin**: Primary admin for operations, backup admin for recovery. Both can perform any admin action.
 - **Dual mint**: USDC + USDT supported from day one, separate vault token accounts

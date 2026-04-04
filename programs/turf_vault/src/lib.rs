@@ -47,6 +47,10 @@ pub mod turf_vault {
         handle_enter_contest(ctx, entry_num)
     }
 
+    pub fn enter_contest_direct(ctx: Context<EnterContestDirect>, entry_num: u32) -> Result<()> {
+        handle_enter_contest_direct(ctx, entry_num)
+    }
+
     pub fn settle_contest(ctx: Context<SettleContest>, settlements: Vec<Settlement>) -> Result<()> {
         handle_settle_contest(ctx, settlements)
     }
