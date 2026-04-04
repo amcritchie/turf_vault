@@ -26,6 +26,7 @@ pub struct UserAccount {
     pub total_deposited: u64,
     pub total_withdrawn: u64,
     pub total_won: u64,
+    pub seeds: u64,            // 25 seeds awarded per contest entry
     pub bump: u8,
 }
 

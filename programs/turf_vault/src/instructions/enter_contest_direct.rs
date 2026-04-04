@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
-use crate::state::{VaultState, Contest, ContestEntry, ContestStatus, EntryStatus};
+use crate::state::{VaultState, UserAccount, Contest, ContestEntry, ContestStatus, EntryStatus};
 use crate::errors::VaultError;
 
 /// Direct entry: user transfers USDC from their own wallet ATA to the vault.
@@ -16,6 +16,13 @@ pub struct EnterContestDirect<'info> {
     /// The user's Phantom wallet — signs the token transfer
     #[account(mut)]
     pub user: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"user", user.key().as_ref()],
+        bump = user_account.bump,
+    )]
+    pub user_account: Account<'info, UserAccount>,
 
     #[account(
         seeds = [b"vault"],
@@ -83,6 +90,10 @@ pub fn handle_enter_contest_direct(ctx: Context<EnterContestDirect>, entry_num: 
     // Update contest state
     contest.prize_pool = contest.prize_pool.checked_add(contest.entry_fee).ok_or(VaultError::Overflow)?;
     contest.current_entries = contest.current_entries.checked_add(1).ok_or(VaultError::Overflow)?;
+
+    // Award 25 seeds
+    let user_account = &mut ctx.accounts.user_account;
+    user_account.seeds = user_account.seeds.checked_add(25).ok_or(VaultError::Overflow)?;
 
     // Create entry
     let entry = &mut ctx.accounts.contest_entry;

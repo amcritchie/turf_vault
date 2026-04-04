@@ -133,6 +133,7 @@ describe("turf_vault", () => {
       const account = await program.account.userAccount.fetch(userAccountPda);
       expect(account.wallet.toBase58()).to.equal(user1.publicKey.toBase58());
       expect(account.balance.toNumber()).to.equal(0);
+      expect(account.seeds.toNumber()).to.equal(0);
     });
 
     it("creates user account for user2", async () => {
@@ -401,6 +402,8 @@ describe("turf_vault", () => {
       expect(userAfter.balance.toNumber()).to.equal(
         userBefore.balance.toNumber() - toTokenAmount(9)
       );
+      // 25 seeds awarded
+      expect(userAfter.seeds.toNumber()).to.equal(25);
       // Contest pool increased
       expect(contest.currentEntries).to.equal(1);
       expect(contest.prizePool.toNumber()).to.equal(toTokenAmount(9));
@@ -447,6 +450,10 @@ describe("turf_vault", () => {
       const contest = await program.account.contest.fetch(contestPda);
       expect(contest.currentEntries).to.equal(2);
       expect(contest.prizePool.toNumber()).to.equal(toTokenAmount(18));
+
+      // 25 seeds awarded to user2
+      const user2After = await program.account.userAccount.fetch(userAccountPda);
+      expect(user2After.seeds.toNumber()).to.equal(25);
     });
 
     it("rejects entry with insufficient balance", async () => {

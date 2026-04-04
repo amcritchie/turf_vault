@@ -55,6 +55,9 @@ pub fn handle_enter_contest(ctx: Context<EnterContest>, entry_num: u32) -> Resul
     contest.prize_pool = contest.prize_pool.checked_add(contest.entry_fee).ok_or(VaultError::Overflow)?;
     contest.current_entries = contest.current_entries.checked_add(1).ok_or(VaultError::Overflow)?;
 
+    // Award 25 seeds
+    user.seeds = user.seeds.checked_add(25).ok_or(VaultError::Overflow)?;
+
     // Create entry
     let entry = &mut ctx.accounts.contest_entry;
     entry.contest_id = contest.contest_id;

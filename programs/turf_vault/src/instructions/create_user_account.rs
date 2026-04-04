@@ -26,6 +26,7 @@ pub fn handle_create_user_account(ctx: Context<CreateUserAccount>, wallet: Pubke
     user.total_deposited = 0;
     user.total_withdrawn = 0;
     user.total_won = 0;
+    user.seeds = 0;
     user.bump = ctx.bumps.user_account;
 
     msg!("User account created for: {}", wallet);
