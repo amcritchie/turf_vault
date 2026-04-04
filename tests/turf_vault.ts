@@ -793,6 +793,35 @@ describe("turf_vault", () => {
     });
   });
 
+  describe("migrate_user_account", () => {
+    it("no-ops on already current account (idempotent)", async () => {
+      const [userAccountPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("user"), user1.publicKey.toBuffer()],
+        program.programId
+      );
+
+      // Account is already at current size — migrate should be a no-op
+      const beforeAccount = await program.account.userAccount.fetch(userAccountPda);
+
+      await program.methods
+        .migrateUserAccount()
+        .accountsStrict({
+          admin: admin.publicKey,
+          vaultState: vaultStatePda,
+          userAccount: userAccountPda,
+          wallet: user1.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      // Verify nothing changed
+      const afterAccount = await program.account.userAccount.fetch(userAccountPda);
+      expect(afterAccount.balance.toNumber()).to.equal(beforeAccount.balance.toNumber());
+      expect(afterAccount.seeds.toNumber()).to.equal(beforeAccount.seeds.toNumber());
+      expect(afterAccount.wallet.toBase58()).to.equal(beforeAccount.wallet.toBase58());
+    });
+  });
+
   describe("backup admin", () => {
     it("backup admin can create a contest", async () => {
       const backupContestId = createHash("sha256").update("backup-admin-test").digest();

@@ -58,4 +58,8 @@ pub mod turf_vault {
     pub fn close_contest(ctx: Context<CloseContest>) -> Result<()> {
         handle_close_contest(ctx)
     }
+
+    pub fn migrate_user_account(ctx: Context<MigrateUserAccount>) -> Result<()> {
+        handle_migrate_user_account(ctx)
+    }
 }

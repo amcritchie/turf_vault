@@ -24,4 +24,8 @@ pub enum VaultError {
     Overflow,
     #[msg("Payout amounts must sum to bonus amount")]
     InvalidPayoutTiers,
+    #[msg("Account is already larger than expected — cannot migrate")]
+    AccountAlreadyMigrated,
+    #[msg("Account data is invalid or has wrong discriminator")]
+    InvalidAccountData,
 }

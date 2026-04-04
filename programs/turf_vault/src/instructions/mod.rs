@@ -8,6 +8,7 @@ pub mod enter_contest_direct;
 pub mod settle_contest;
 pub mod close_contest;
 pub mod force_close_vault;
+pub mod migrate_user_account;
 
 pub use initialize::*;
 pub use create_user_account::*;
@@ -19,3 +20,4 @@ pub use enter_contest_direct::*;
 pub use settle_contest::*;
 pub use close_contest::*;
 pub use force_close_vault::*;
+pub use migrate_user_account::*;
