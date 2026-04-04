@@ -8,7 +8,7 @@ Anchor smart contract for contest escrow on Solana. Backend for Turf Monster (Ra
 - **Framework**: Anchor 0.32.1
 - **Rust**: 1.89.0 (via `rust-toolchain.toml`)
 - **Network**: Localnet (dev), Devnet (staging)
-- **Version**: 0.3.0
+- **Version**: 0.4.0
 
 ## File Layout
 
@@ -86,6 +86,9 @@ All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout
 - `ContestStatus`: Open → Locked → Settled
 - `EntryStatus`: Active → Won / Lost
 
+### Contest Fields
+- `contest_id`, `entry_fee`, `max_entries`, `current_entries`, `prize_pool`, `bonus`, `status`, `payout_amounts` (Vec, max 10), `admin` (payer pubkey), `creator` (bonus funder pubkey), `bump`
+
 ### Key Constraints
 - All token amounts: `u64` with 6 decimals (1 USDC = 1_000_000)
 - `payout_amounts` sum must equal `bonus` (validated in create_contest)
@@ -115,7 +118,7 @@ All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout
 anchor test
 ```
 
-20 tests covering: initialize (with admin_backup), create_user_account, deposit (USDC/USDT + invalid mint), create_contest (admin + non-admin rejection), enter_contest (2 users + insufficient balance), settle_contest (payouts + already-settled + non-admin), withdraw (success + insufficient balance), close_contest (settled + unsettled), backup admin (can create contest).
+20 tests covering: initialize (with admin_backup), create_user_account, deposit (USDC/USDT + invalid mint), create_contest (admin with bonus USDC transfer + non-admin rejection), enter_contest (2 users + insufficient balance), settle_contest (payouts + already-settled + non-admin), withdraw (success + insufficient balance), close_contest (settled + unsettled), backup admin (can create contest). Tests use SOL transfers from admin instead of `requestAirdrop` (broken in Solana v3.1).
 
 ### Test Setup Pattern
 ```typescript
@@ -182,7 +185,7 @@ bin/rails solana:init_vault INIT=true ADMIN_BACKUP=<backup_admin_base58>
 - **USDT Mint**: `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` (test, 6 decimals)
 - **IDL Account**: `DCP2XRu8ZwzsCpXBgu5xa4vTYdYQhKUZRU49iJuFv8Lf`
 
-**Status**: v0.3.0 built (pending deploy). v0.2.0 deployed on devnet. Vault initialized with dual admin. Mint authorities (USDC + USDT) transferred to Alex Bot.
+**Status**: v0.4.0 deployed on devnet. Vault re-initialized with dual admin. Mint authorities (USDC + USDT) transferred to Alex Bot.
 
 ## Versioning Protocol
 
@@ -211,6 +214,7 @@ The Rails app calls TurfVault through a `Solana::Vault` service layer:
 
 - **Managed entry** (`enter_contest`): Separates payer (admin signer) from wallet (entry owner) — deducts from UserAccount PDA balance. For server-managed wallets.
 - **Direct entry** (`enter_contest_direct`): User signs USDC transfer from their own wallet ATA to vault. Admin pays PDA rent so user only spends USDC. For Phantom wallets. Added in v0.3.0.
+- **Hard escrow contest creation** (`create_contest` v0.4.0): Dual-signer — `payer` (admin bot, pays SOL rent) + `creator` (Phantom wallet, signs bonus USDC transfer from creator ATA → vault). Contest struct stores `creator` pubkey. If bonus is 0, no transfer occurs but token accounts are still required.
 - **No lock instruction**: Contest can go directly from Open to Settled (Locked status exists but no instruction sets it yet)
 - **Dual admin**: Primary admin for operations, backup admin for recovery. Both can perform any admin action.
 - **Dual mint**: USDC + USDT supported from day one, separate vault token accounts

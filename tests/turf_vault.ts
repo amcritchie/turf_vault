@@ -38,6 +38,8 @@ describe("turf_vault", () => {
   let user1UsdcAccount: PublicKey;
   let user1UsdtAccount: PublicKey;
   let user2UsdcAccount: PublicKey;
+  let adminUsdcAccount: PublicKey;
+  let backupAdminUsdcAccount: PublicKey;
 
   // Contest
   const contestSlug = "turf-totals-v1-matchday-1";
@@ -51,10 +53,16 @@ describe("turf_vault", () => {
     user2 = Keypair.generate();
     adminBackup = Keypair.generate();
 
-    // Airdrop SOL to users
+    // Fund test users with SOL (transfer from admin instead of airdrop — v3.1 airdrop is broken)
     for (const user of [user1, user2, adminBackup]) {
-      const sig = await connection.requestAirdrop(user.publicKey, 10 * LAMPORTS_PER_SOL);
-      await connection.confirmTransaction(sig);
+      const tx = new anchor.web3.Transaction().add(
+        anchor.web3.SystemProgram.transfer({
+          fromPubkey: admin.publicKey,
+          toPubkey: user.publicKey,
+          lamports: 10 * LAMPORTS_PER_SOL,
+        })
+      );
+      await provider.sendAndConfirm(tx);
     }
 
     // Create USDC and USDT mints (admin is mint authority)
@@ -70,11 +78,15 @@ describe("turf_vault", () => {
     user1UsdcAccount = await createAccount(connection, admin.payer, usdcMint, user1.publicKey);
     user1UsdtAccount = await createAccount(connection, admin.payer, usdtMint, user1.publicKey);
     user2UsdcAccount = await createAccount(connection, admin.payer, usdcMint, user2.publicKey);
+    adminUsdcAccount = await createAccount(connection, admin.payer, usdcMint, admin.publicKey);
+    backupAdminUsdcAccount = await createAccount(connection, admin.payer, usdcMint, adminBackup.publicKey);
 
-    // Mint test tokens to users
+    // Mint test tokens to users and admins
     await mintTo(connection, admin.payer, usdcMint, user1UsdcAccount, admin.publicKey, toTokenAmount(100));
     await mintTo(connection, admin.payer, usdtMint, user1UsdtAccount, admin.publicKey, toTokenAmount(50));
     await mintTo(connection, admin.payer, usdcMint, user2UsdcAccount, admin.publicKey, toTokenAmount(100));
+    await mintTo(connection, admin.payer, usdcMint, adminUsdcAccount, admin.publicKey, toTokenAmount(500));
+    await mintTo(connection, admin.payer, usdcMint, backupAdminUsdcAccount, admin.publicKey, toTokenAmount(100));
   });
 
   describe("initialize", () => {
@@ -257,7 +269,7 @@ describe("turf_vault", () => {
   });
 
   describe("create_contest", () => {
-    it("admin creates a contest", async () => {
+    it("admin creates a contest with bonus transfer", async () => {
       const [contestPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("contest"), contestId],
         program.programId
@@ -268,6 +280,9 @@ describe("turf_vault", () => {
       const payoutAmounts = [new anchor.BN(toTokenAmount(40))]; // Small format: 1st gets $40
       const bonus = toTokenAmount(40); // $40 guarantee
 
+      const vaultBefore = await getAccount(connection, vaultUsdcPda);
+      const adminBefore = await getAccount(connection, adminUsdcAccount);
+
       await program.methods
         .createContest(
           Array.from(contestId) as any,
@@ -277,9 +292,14 @@ describe("turf_vault", () => {
           new anchor.BN(bonus)
         )
         .accountsStrict({
-          admin: admin.publicKey,
+          payer: admin.publicKey,
+          creator: admin.publicKey,
           vaultState: vaultStatePda,
           contest: contestPda,
+          mint: usdcMint,
+          creatorTokenAccount: adminUsdcAccount,
+          vaultTokenAccount: vaultUsdcPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -290,7 +310,14 @@ describe("turf_vault", () => {
       expect(contest.currentEntries).to.equal(0);
       expect(contest.prizePool.toNumber()).to.equal(0);
       expect(contest.bonus.toNumber()).to.equal(bonus);
+      expect(contest.creator.toBase58()).to.equal(admin.publicKey.toBase58());
       expect(JSON.stringify(contest.status)).to.equal(JSON.stringify({ open: {} }));
+
+      // Verify bonus USDC was transferred
+      const vaultAfter = await getAccount(connection, vaultUsdcPda);
+      const adminAfter = await getAccount(connection, adminUsdcAccount);
+      expect(Number(vaultAfter.amount) - Number(vaultBefore.amount)).to.equal(bonus);
+      expect(Number(adminBefore.amount) - Number(adminAfter.amount)).to.equal(bonus);
     });
 
     it("rejects non-admin creating a contest", async () => {
@@ -310,9 +337,14 @@ describe("turf_vault", () => {
             new anchor.BN(toTokenAmount(40))
           )
           .accountsStrict({
-            admin: user1.publicKey,
+            payer: user1.publicKey,
+            creator: user1.publicKey,
             vaultState: vaultStatePda,
             contest: contestPda,
+            mint: usdcMint,
+            creatorTokenAccount: user1UsdcAccount,
+            vaultTokenAccount: vaultUsdcPda,
+            tokenProgram: TOKEN_PROGRAM_ID,
             systemProgram: SystemProgram.programId,
           })
           .signers([user1])
@@ -418,10 +450,16 @@ describe("turf_vault", () => {
     });
 
     it("rejects entry with insufficient balance", async () => {
-      // Create a broke user
+      // Create a broke user (transfer SOL instead of airdrop — v3.1 airdrop is broken)
       const brokeUser = Keypair.generate();
-      const sig = await connection.requestAirdrop(brokeUser.publicKey, LAMPORTS_PER_SOL);
-      await connection.confirmTransaction(sig);
+      const fundTx = new anchor.web3.Transaction().add(
+        anchor.web3.SystemProgram.transfer({
+          fromPubkey: admin.publicKey,
+          toPubkey: brokeUser.publicKey,
+          lamports: LAMPORTS_PER_SOL,
+        })
+      );
+      await provider.sendAndConfirm(fundTx);
 
       const [brokeUserPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("user"), brokeUser.publicKey.toBuffer()],
@@ -584,9 +622,14 @@ describe("turf_vault", () => {
           new anchor.BN(0)
         )
         .accountsStrict({
-          admin: admin.publicKey,
+          payer: admin.publicKey,
+          creator: admin.publicKey,
           vaultState: vaultStatePda,
           contest: newContestPda,
+          mint: usdcMint,
+          creatorTokenAccount: adminUsdcAccount,
+          vaultTokenAccount: vaultUsdcPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -715,9 +758,14 @@ describe("turf_vault", () => {
           new anchor.BN(0)
         )
         .accountsStrict({
-          admin: admin.publicKey,
+          payer: admin.publicKey,
+          creator: admin.publicKey,
           vaultState: vaultStatePda,
           contest: freshContestPda,
+          mint: usdcMint,
+          creatorTokenAccount: adminUsdcAccount,
+          vaultTokenAccount: vaultUsdcPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -755,9 +803,14 @@ describe("turf_vault", () => {
           new anchor.BN(0)
         )
         .accountsStrict({
-          admin: adminBackup.publicKey,
+          payer: adminBackup.publicKey,
+          creator: adminBackup.publicKey,
           vaultState: vaultStatePda,
           contest: backupContestPda,
+          mint: usdcMint,
+          creatorTokenAccount: backupAdminUsdcAccount,
+          vaultTokenAccount: vaultUsdcPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .signers([adminBackup])

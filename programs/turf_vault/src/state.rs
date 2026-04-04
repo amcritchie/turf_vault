@@ -49,6 +49,7 @@ pub struct Contest {
     #[max_len(10)]
     pub payout_amounts: Vec<u64>,  // USDC amounts per rank (6 decimals, e.g. [40_000000])
     pub admin: Pubkey,
+    pub creator: Pubkey,       // wallet that funded the bonus USDC
     pub bump: u8,
 }
 
