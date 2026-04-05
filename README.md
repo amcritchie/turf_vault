@@ -144,6 +144,8 @@ Create → Enter → Settle → Close
 
 ## Development
 
+See [CLAUDE.md](./CLAUDE.md) for detailed development context including the dual admin system, PDA patterns, error codes, integration with Turf Monster, and AI agent instructions.
+
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) 1.89+

@@ -87,7 +87,7 @@ All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout
 - `EntryStatus`: Active → Won / Lost
 
 ### UserAccount Fields
-- `wallet`, `balance`, `total_deposited`, `total_withdrawn`, `total_won`, `seeds` (u64, 25 per entry), `bump`
+- `wallet`, `balance`, `total_deposited`, `total_withdrawn`, `total_won`, `seeds` (u64, 60 per entry), `bump`
 
 ### Contest Fields
 - `contest_id`, `entry_fee`, `max_entries`, `current_entries`, `prize_pool`, `bonus`, `status`, `payout_amounts` (Vec, max 10), `admin` (payer pubkey), `creator` (bonus funder pubkey), `bump`
@@ -137,6 +137,13 @@ expect(vault.admin.toBase58()).to.equal(admin.publicKey.toBase58());
 expect(vault.adminBackup.toBase58()).to.equal(adminBackup.publicKey.toBase58());
 ```
 
+## Prerequisites
+
+- **Rust**: 1.89.0 (via `rust-toolchain.toml`)
+- **Anchor CLI**: 0.32.1 — `/Users/alex/.cargo/bin/anchor`
+- **Solana CLI**: `/Users/alex/.local/share/solana/install/active_release/bin/solana`
+- **Node.js + Yarn**: Required for TypeScript tests
+
 ## Build & Deploy
 
 ```bash
@@ -152,6 +159,14 @@ anchor deploy --provider.cluster devnet
 
 # Verify deployment
 solana program show 7Hy8GmJWPMdt6bx3VG4BLFnpNX9TBwkPt87W6bkHgr2J
+```
+
+### `anchor test` Workaround
+
+Anchor CLI 0.32.1 can't find `node`/`yarn` in PATH due to Rust subprocess spawning. If `anchor test` fails to find node, deploy manually then run tests directly:
+
+```bash
+ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 ANCHOR_WALLET=~/.config/solana/id.json yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts
 ```
 
 ### Devnet SOL Faucet Protocol
@@ -188,7 +203,7 @@ bin/rails solana:init_vault INIT=true ADMIN_BACKUP=<backup_admin_base58>
 - **USDT Mint**: `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` (test, 6 decimals)
 - **IDL Account**: `DCP2XRu8ZwzsCpXBgu5xa4vTYdYQhKUZRU49iJuFv8Lf`
 
-**Status**: v0.5.0 deployed on devnet. Seeds field added to UserAccount (25 per entry). Vault re-initialized. Mint authorities (USDC + USDT) transferred to Alex Bot.
+**Status**: v0.5.0 deployed on devnet. Seeds field added to UserAccount (60 per entry). Vault re-initialized. Mint authorities (USDC + USDT) transferred to Alex Bot.
 
 ## Versioning Protocol
 
@@ -221,7 +236,7 @@ The Rails app calls TurfVault through a `Solana::Vault` service layer:
 - **No lock instruction**: Contest can go directly from Open to Settled (Locked status exists but no instruction sets it yet)
 - **Dual admin**: Primary admin for operations, backup admin for recovery. Both can perform any admin action.
 - **Dual mint**: USDC + USDT supported from day one, separate vault token accounts
-- **Seeds system** (v0.5.0): Both `enter_contest` and `enter_contest_direct` award 25 seeds to the user's `UserAccount` PDA. Seeds are on-chain only — Rails reads them via `sync_balance` and derives levels in the UI (`level = seeds / 100 + 1`).
+- **Seeds system** (v0.5.0): Both `enter_contest` and `enter_contest_direct` award 60 seeds to the user's `UserAccount` PDA. Seeds are on-chain only — Rails reads them via `sync_balance` and derives levels in the UI (`level = seeds / 100 + 1`).
 - **Manual settlement**: No on-chain scoring — Rails computes results, admin submits final rankings
 - **force_close_vault**: Migration instruction that reads admin from raw bytes (avoids deserialization of old schema)
 

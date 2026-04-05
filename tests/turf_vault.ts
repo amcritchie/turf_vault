@@ -402,8 +402,8 @@ describe("turf_vault", () => {
       expect(userAfter.balance.toNumber()).to.equal(
         userBefore.balance.toNumber() - toTokenAmount(9)
       );
-      // 25 seeds awarded
-      expect(userAfter.seeds.toNumber()).to.equal(25);
+      // 60 seeds awarded
+      expect(userAfter.seeds.toNumber()).to.equal(60);
       // Contest pool increased
       expect(contest.currentEntries).to.equal(1);
       expect(contest.prizePool.toNumber()).to.equal(toTokenAmount(9));
@@ -451,9 +451,9 @@ describe("turf_vault", () => {
       expect(contest.currentEntries).to.equal(2);
       expect(contest.prizePool.toNumber()).to.equal(toTokenAmount(18));
 
-      // 25 seeds awarded to user2
+      // 60 seeds awarded to user2
       const user2After = await program.account.userAccount.fetch(userAccountPda);
-      expect(user2After.seeds.toNumber()).to.equal(25);
+      expect(user2After.seeds.toNumber()).to.equal(60);
     });
 
     it("rejects entry with insufficient balance", async () => {
