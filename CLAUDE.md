@@ -8,7 +8,7 @@ Anchor smart contract for contest escrow on Solana. Backend for Turf Monster (Ra
 - **Framework**: Anchor 0.32.1
 - **Rust**: 1.89.0 (via `rust-toolchain.toml`)
 - **Network**: Localnet (dev), Devnet (staging)
-- **Version**: 0.5.0
+- **Version**: 0.7.0
 
 ## File Layout
 
@@ -87,7 +87,7 @@ All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout
 - `EntryStatus`: Active → Won / Lost
 
 ### UserAccount Fields
-- `wallet`, `balance`, `total_deposited`, `total_withdrawn`, `total_won`, `seeds` (u64, 60 per entry), `bump`
+- `wallet`, `balance`, `total_deposited`, `total_withdrawn`, `total_won`, `seeds` (u64, 65 per entry), `bump`
 
 ### Contest Fields
 - `contest_id`, `entry_fee`, `max_entries`, `current_entries`, `prize_pool`, `bonus`, `status`, `payout_amounts` (Vec, max 10), `admin` (payer pubkey), `creator` (bonus funder pubkey), `bump`
@@ -203,7 +203,7 @@ bin/rails solana:init_vault INIT=true ADMIN_BACKUP=<backup_admin_base58>
 - **USDT Mint**: `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` (test, 6 decimals)
 - **IDL Account**: `DCP2XRu8ZwzsCpXBgu5xa4vTYdYQhKUZRU49iJuFv8Lf`
 
-**Status**: v0.5.0 deployed on devnet. Seeds field added to UserAccount (60 per entry). Vault re-initialized. Mint authorities (USDC + USDT) transferred to Alex Bot.
+**Status**: v0.7.0 deployed on devnet. Seeds field added to UserAccount (65 per entry since v0.7.0). Vault re-initialized. Mint authorities (USDC + USDT) transferred to Alex Bot.
 
 ## Versioning Protocol
 
@@ -236,7 +236,7 @@ The Rails app calls TurfVault through a `Solana::Vault` service layer:
 - **No lock instruction**: Contest can go directly from Open to Settled (Locked status exists but no instruction sets it yet)
 - **Dual admin**: Primary admin for operations, backup admin for recovery. Both can perform any admin action.
 - **Dual mint**: USDC + USDT supported from day one, separate vault token accounts
-- **Seeds system** (v0.5.0): Both `enter_contest` and `enter_contest_direct` award 60 seeds to the user's `UserAccount` PDA. Seeds are on-chain only — Rails reads them via `sync_balance` and derives levels in the UI (`level = seeds / 100 + 1`).
+- **Seeds system** (v0.5.0, updated v0.7.0): Both `enter_contest` and `enter_contest_direct` award 65 seeds to the user's `UserAccount` PDA. Seeds are on-chain only — Rails reads them via `sync_balance` and derives levels in the UI (`level = seeds / 100 + 1`).
 - **Manual settlement**: No on-chain scoring — Rails computes results, admin submits final rankings
 - **force_close_vault**: Migration instruction that reads admin from raw bytes (avoids deserialization of old schema)
 
