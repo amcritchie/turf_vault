@@ -15,10 +15,12 @@ pub struct SettleContest<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
+    pub cosigner: Signer<'info>,
+
     #[account(
         seeds = [b"vault"],
         bump = vault_state.bump,
-        constraint = vault_state.is_admin(&admin.key()) @ VaultError::Unauthorized,
+        constraint = vault_state.validate_multisig(&admin.key(), &cosigner.key()) @ VaultError::Unauthorized,
     )]
     pub vault_state: Account<'info, VaultState>,
 
@@ -34,7 +36,7 @@ pub struct SettleContest<'info> {
 pub fn handle_settle_contest(ctx: Context<SettleContest>, settlements: Vec<Settlement>) -> Result<()> {
     let contest = &mut ctx.accounts.contest;
 
-    // Validate total payouts don't exceed pool + bonus
+    // Validate total payouts don't exceed entry_fees + prizes
     let total_payouts: u64 = settlements
         .iter()
         .map(|s| s.payout)
@@ -42,8 +44,8 @@ pub fn handle_settle_contest(ctx: Context<SettleContest>, settlements: Vec<Settl
         .ok_or(VaultError::Overflow)?;
 
     let max_payout = contest
-        .prize_pool
-        .checked_add(contest.bonus)
+        .entry_fees
+        .checked_add(contest.prizes)
         .ok_or(VaultError::Overflow)?;
     require!(total_payouts <= max_payout, VaultError::SettlementOverflow);
 

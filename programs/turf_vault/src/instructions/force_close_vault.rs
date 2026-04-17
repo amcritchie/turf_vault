@@ -2,19 +2,23 @@ use anchor_lang::prelude::*;
 use crate::errors::VaultError;
 
 /// Migration-only instruction: closes the old VaultState account so it can be
-/// re-initialized with the new schema (which adds admin_backup).
+/// re-initialized with the new schema.
 ///
 /// We cannot use `Account<'info, VaultState>` because the on-chain data has the
-/// OLD layout (no admin_backup field). Instead we accept a raw UncheckedAccount,
-/// verify the PDA seeds, read the admin pubkey from raw bytes, confirm the
-/// signer matches, and then close the account by draining its lamports.
+/// OLD layout. Instead we accept a raw UncheckedAccount, verify the PDA seeds,
+/// read the first signer pubkey from raw bytes, confirm the signer matches,
+/// and then close the account by draining its lamports.
+///
+/// Requires 2-of-3 multisig: both admin and cosigner must be stored signers.
 #[derive(Accounts)]
 pub struct ForceCloseVault<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
+    pub cosigner: Signer<'info>,
+
     /// The existing vault account (old layout). We verify PDA seeds manually.
-    /// CHECK: Verified via seeds check and manual admin comparison below.
+    /// CHECK: Verified via seeds check and manual signer comparison below.
     #[account(
         mut,
         seeds = [b"vault"],
@@ -27,12 +31,25 @@ pub fn handle_force_close_vault(ctx: Context<ForceCloseVault>) -> Result<()> {
     let vault_info = &ctx.accounts.vault_state;
     let data = vault_info.try_borrow_data()?;
 
-    // Old layout: 8-byte discriminator + 32-byte admin pubkey
-    require!(data.len() >= 40, VaultError::Unauthorized);
+    // Layout: 8-byte discriminator + 3 x 32-byte signers = 104 bytes minimum
+    // We read all 3 signers and verify both admin and cosigner are in the array
+    require!(data.len() >= 104, VaultError::Unauthorized);
 
-    let stored_admin = Pubkey::try_from(&data[8..40])
+    let signer0 = Pubkey::try_from(&data[8..40])
         .map_err(|_| error!(VaultError::Unauthorized))?;
-    require!(stored_admin == ctx.accounts.admin.key(), VaultError::Unauthorized);
+    let signer1 = Pubkey::try_from(&data[40..72])
+        .map_err(|_| error!(VaultError::Unauthorized))?;
+    let signer2 = Pubkey::try_from(&data[72..104])
+        .map_err(|_| error!(VaultError::Unauthorized))?;
+
+    let stored_signers = [signer0, signer1, signer2];
+    let admin_key = ctx.accounts.admin.key();
+    let cosigner_key = ctx.accounts.cosigner.key();
+
+    // Validate 2-of-3: both must be different and both must be stored signers
+    require!(admin_key != cosigner_key, VaultError::Unauthorized);
+    require!(stored_signers.contains(&admin_key), VaultError::Unauthorized);
+    require!(stored_signers.contains(&cosigner_key), VaultError::Unauthorized);
 
     // Drop borrow before modifying lamports
     drop(data);

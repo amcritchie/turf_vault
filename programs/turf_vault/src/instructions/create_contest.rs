@@ -10,14 +10,14 @@ pub struct CreateContest<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    /// Creator's Phantom wallet — signs USDC transfer for bonus
+    /// Creator's Phantom wallet — signs USDC transfer for prizes
     #[account(mut)]
     pub creator: Signer<'info>,
 
     #[account(
         seeds = [b"vault"],
         bump = vault_state.bump,
-        constraint = vault_state.is_admin(&payer.key()) @ VaultError::Unauthorized,
+        constraint = vault_state.is_signer(&payer.key()) @ VaultError::Unauthorized,
     )]
     pub vault_state: Account<'info, VaultState>,
 
@@ -33,11 +33,11 @@ pub struct CreateContest<'info> {
     #[account(constraint = mint.key() == vault_state.usdc_mint @ VaultError::InvalidMint)]
     pub mint: Account<'info, Mint>,
 
-    /// Creator's USDC token account (ATA) — source of bonus
+    /// Creator's USDC token account (ATA) — source of prizes
     #[account(mut, token::mint = mint, token::authority = creator)]
     pub creator_token_account: Account<'info, TokenAccount>,
 
-    /// Vault's USDC token account — destination for bonus
+    /// Vault's USDC token account — destination for prizes
     #[account(mut, constraint = vault_token_account.key() == vault_state.vault_usdc @ VaultError::InvalidMint)]
     pub vault_token_account: Account<'info, TokenAccount>,
 
@@ -51,36 +51,36 @@ pub fn handle_create_contest(
     entry_fee: u64,
     max_entries: u32,
     payout_amounts: Vec<u64>,
-    bonus: u64,
+    prizes: u64,
 ) -> Result<()> {
-    // Validate payout_amounts sum == bonus
+    // Validate payout_amounts sum == prizes
     let total_payouts: u64 = payout_amounts.iter().sum();
-    require!(total_payouts == bonus, VaultError::InvalidPayoutTiers);
+    require!(total_payouts == prizes, VaultError::InvalidPayoutTiers);
 
     let contest = &mut ctx.accounts.contest;
     contest.contest_id = contest_id;
+    contest.prizes = prizes;
     contest.entry_fee = entry_fee;
+    contest.entry_fees = 0;
     contest.max_entries = max_entries;
     contest.current_entries = 0;
-    contest.prize_pool = 0;
-    contest.bonus = bonus;
     contest.status = ContestStatus::Open;
     contest.payout_amounts = payout_amounts;
     contest.admin = ctx.accounts.payer.key();
     contest.creator = ctx.accounts.creator.key();
     contest.bump = ctx.bumps.contest;
 
-    // Transfer bonus USDC from creator's ATA → vault
-    if bonus > 0 {
+    // Transfer prizes USDC from creator's ATA → vault
+    if prizes > 0 {
         let cpi_accounts = Transfer {
             from: ctx.accounts.creator_token_account.to_account_info(),
             to: ctx.accounts.vault_token_account.to_account_info(),
             authority: ctx.accounts.creator.to_account_info(),
         };
         let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
-        token::transfer(cpi_ctx, bonus)?;
+        token::transfer(cpi_ctx, prizes)?;
     }
 
-    msg!("Contest created with fee: {}, bonus: {}", entry_fee, bonus);
+    msg!("Contest created with fee: {}, prizes: {}", entry_fee, prizes);
     Ok(())
 }

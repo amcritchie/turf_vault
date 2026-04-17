@@ -23,7 +23,8 @@ describe("turf_vault", () => {
   // Test keypairs
   let user1: Keypair;
   let user2: Keypair;
-  let adminBackup: Keypair;
+  let signer2: Keypair;  // Second multisig signer (was adminBackup)
+  let signer3: Keypair;  // Third multisig signer (Mason)
 
   // Token mints
   let usdcMint: PublicKey;
@@ -39,7 +40,7 @@ describe("turf_vault", () => {
   let user1UsdtAccount: PublicKey;
   let user2UsdcAccount: PublicKey;
   let adminUsdcAccount: PublicKey;
-  let backupAdminUsdcAccount: PublicKey;
+  let signer2UsdcAccount: PublicKey;
 
   // Contest
   const contestSlug = "turf-totals-v1-matchday-1";
@@ -51,10 +52,11 @@ describe("turf_vault", () => {
     // Create test users and fund them
     user1 = Keypair.generate();
     user2 = Keypair.generate();
-    adminBackup = Keypair.generate();
+    signer2 = Keypair.generate();
+    signer3 = Keypair.generate();
 
     // Fund test users with SOL (transfer from admin instead of airdrop — v3.1 airdrop is broken)
-    for (const user of [user1, user2, adminBackup]) {
+    for (const user of [user1, user2, signer2, signer3]) {
       const tx = new anchor.web3.Transaction().add(
         anchor.web3.SystemProgram.transfer({
           fromPubkey: admin.publicKey,
@@ -79,20 +81,20 @@ describe("turf_vault", () => {
     user1UsdtAccount = await createAccount(connection, admin.payer, usdtMint, user1.publicKey);
     user2UsdcAccount = await createAccount(connection, admin.payer, usdcMint, user2.publicKey);
     adminUsdcAccount = await createAccount(connection, admin.payer, usdcMint, admin.publicKey);
-    backupAdminUsdcAccount = await createAccount(connection, admin.payer, usdcMint, adminBackup.publicKey);
+    signer2UsdcAccount = await createAccount(connection, admin.payer, usdcMint, signer2.publicKey);
 
     // Mint test tokens to users and admins
     await mintTo(connection, admin.payer, usdcMint, user1UsdcAccount, admin.publicKey, toTokenAmount(100));
     await mintTo(connection, admin.payer, usdtMint, user1UsdtAccount, admin.publicKey, toTokenAmount(50));
     await mintTo(connection, admin.payer, usdcMint, user2UsdcAccount, admin.publicKey, toTokenAmount(100));
     await mintTo(connection, admin.payer, usdcMint, adminUsdcAccount, admin.publicKey, toTokenAmount(500));
-    await mintTo(connection, admin.payer, usdcMint, backupAdminUsdcAccount, admin.publicKey, toTokenAmount(100));
+    await mintTo(connection, admin.payer, usdcMint, signer2UsdcAccount, admin.publicKey, toTokenAmount(100));
   });
 
   describe("initialize", () => {
-    it("initializes the vault", async () => {
+    it("initializes the vault with 3 signers and threshold 2", async () => {
       await program.methods
-        .initialize(adminBackup.publicKey)
+        .initialize([admin.publicKey, signer2.publicKey, signer3.publicKey], 2)
         .accountsStrict({
           admin: admin.publicKey,
           vaultState: vaultStatePda,
@@ -107,8 +109,10 @@ describe("turf_vault", () => {
         .rpc();
 
       const vault = await program.account.vaultState.fetch(vaultStatePda);
-      expect(vault.admin.toBase58()).to.equal(admin.publicKey.toBase58());
-      expect(vault.adminBackup.toBase58()).to.equal(adminBackup.publicKey.toBase58());
+      expect(vault.signers[0].toBase58()).to.equal(admin.publicKey.toBase58());
+      expect(vault.signers[1].toBase58()).to.equal(signer2.publicKey.toBase58());
+      expect(vault.signers[2].toBase58()).to.equal(signer3.publicKey.toBase58());
+      expect(vault.threshold).to.equal(2);
       expect(vault.usdcMint.toBase58()).to.equal(usdcMint.toBase58());
       expect(vault.usdtMint.toBase58()).to.equal(usdtMint.toBase58());
     });
@@ -270,7 +274,7 @@ describe("turf_vault", () => {
   });
 
   describe("create_contest", () => {
-    it("admin creates a contest with bonus transfer", async () => {
+    it("admin creates a contest with prizes transfer", async () => {
       const [contestPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("contest"), contestId],
         program.programId
@@ -279,7 +283,7 @@ describe("turf_vault", () => {
       const entryFee = toTokenAmount(9); // $9
       const maxEntries = 5;
       const payoutAmounts = [new anchor.BN(toTokenAmount(40))]; // Small format: 1st gets $40
-      const bonus = toTokenAmount(40); // $40 guarantee
+      const prizes = toTokenAmount(40); // $40 guarantee
 
       const vaultBefore = await getAccount(connection, vaultUsdcPda);
       const adminBefore = await getAccount(connection, adminUsdcAccount);
@@ -290,7 +294,7 @@ describe("turf_vault", () => {
           new anchor.BN(entryFee),
           maxEntries,
           payoutAmounts,
-          new anchor.BN(bonus)
+          new anchor.BN(prizes)
         )
         .accountsStrict({
           payer: admin.publicKey,
@@ -309,19 +313,19 @@ describe("turf_vault", () => {
       expect(contest.entryFee.toNumber()).to.equal(entryFee);
       expect(contest.maxEntries).to.equal(maxEntries);
       expect(contest.currentEntries).to.equal(0);
-      expect(contest.prizePool.toNumber()).to.equal(0);
-      expect(contest.bonus.toNumber()).to.equal(bonus);
+      expect(contest.entryFees.toNumber()).to.equal(0);
+      expect(contest.prizes.toNumber()).to.equal(prizes);
       expect(contest.creator.toBase58()).to.equal(admin.publicKey.toBase58());
       expect(JSON.stringify(contest.status)).to.equal(JSON.stringify({ open: {} }));
 
-      // Verify bonus USDC was transferred
+      // Verify prizes USDC was transferred
       const vaultAfter = await getAccount(connection, vaultUsdcPda);
       const adminAfter = await getAccount(connection, adminUsdcAccount);
-      expect(Number(vaultAfter.amount) - Number(vaultBefore.amount)).to.equal(bonus);
-      expect(Number(adminBefore.amount) - Number(adminAfter.amount)).to.equal(bonus);
+      expect(Number(vaultAfter.amount) - Number(vaultBefore.amount)).to.equal(prizes);
+      expect(Number(adminBefore.amount) - Number(adminAfter.amount)).to.equal(prizes);
     });
 
-    it("rejects non-admin creating a contest", async () => {
+    it("rejects non-signer creating a contest", async () => {
       const fakeContestId = createHash("sha256").update("fake-contest").digest();
       const [contestPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("contest"), fakeContestId],
@@ -406,7 +410,7 @@ describe("turf_vault", () => {
       expect(userAfter.seeds.toNumber()).to.equal(65);
       // Contest pool increased
       expect(contest.currentEntries).to.equal(1);
-      expect(contest.prizePool.toNumber()).to.equal(toTokenAmount(9));
+      expect(contest.entryFees.toNumber()).to.equal(toTokenAmount(9));
       // Entry created
       expect(entry.wallet.toBase58()).to.equal(user1.publicKey.toBase58());
       expect(entry.entryNum).to.equal(entryNum);
@@ -449,7 +453,7 @@ describe("turf_vault", () => {
 
       const contest = await program.account.contest.fetch(contestPda);
       expect(contest.currentEntries).to.equal(2);
-      expect(contest.prizePool.toNumber()).to.equal(toTokenAmount(18));
+      expect(contest.entryFees.toNumber()).to.equal(toTokenAmount(18));
 
       // 65 seeds awarded to user2
       const user2After = await program.account.userAccount.fetch(userAccountPda);
@@ -519,7 +523,7 @@ describe("turf_vault", () => {
   });
 
   describe("settle_contest", () => {
-    it("admin settles the contest with payouts", async () => {
+    it("settles with valid cosigner (2-of-3 multisig)", async () => {
       const [contestPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("contest"), contestId],
         program.programId
@@ -546,7 +550,7 @@ describe("turf_vault", () => {
       const user1Before = await program.account.userAccount.fetch(user1AccountPda);
       const user2Before = await program.account.userAccount.fetch(user2AccountPda);
 
-      // Contest pool = $18 (2×$9), bonus = $40, total = $58
+      // Contest entry_fees = $18 (2×$9), prizes = $40, total = $58
       // user1 rank 1 gets $40 (Small format payout), user2 rank 2 gets $0
       const settlements = [
         { wallet: user1.publicKey, entryNum: 1, rank: 1, payout: new anchor.BN(toTokenAmount(40)) },
@@ -557,9 +561,11 @@ describe("turf_vault", () => {
         .settleContest(settlements)
         .accountsStrict({
           admin: admin.publicKey,
+          cosigner: signer2.publicKey,
           vaultState: vaultStatePda,
           contest: contestPda,
         })
+        .signers([signer2])
         .remainingAccounts([
           { pubkey: user1AccountPda, isSigner: false, isWritable: true },
           { pubkey: user1EntryPda, isSigner: false, isWritable: true },
@@ -591,38 +597,17 @@ describe("turf_vault", () => {
       expect(user2Entry.rank).to.equal(2);
     });
 
-    it("rejects settling an already settled contest", async () => {
-      const [contestPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("contest"), contestId],
-        program.programId
-      );
-
-      try {
-        await program.methods
-          .settleContest([])
-          .accountsStrict({
-            admin: admin.publicKey,
-            vaultState: vaultStatePda,
-            contest: contestPda,
-          })
-          .rpc();
-        expect.fail("Should have thrown");
-      } catch (err) {
-        expect(err.toString()).to.contain("ContestAlreadySettled");
-      }
-    });
-
-    it("rejects non-admin settling", async () => {
+    it("rejects settlement with same signer twice", async () => {
       // Create a new contest to test with
-      const newContestId = createHash("sha256").update("settle-auth-test").digest();
-      const [newContestPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("contest"), newContestId],
+      const dupeContestId = createHash("sha256").update("dupe-signer-test").digest();
+      const [dupeContestPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("contest"), dupeContestId],
         program.programId
       );
 
       await program.methods
         .createContest(
-          Array.from(newContestId) as any,
+          Array.from(dupeContestId) as any,
           new anchor.BN(toTokenAmount(9)),
           5,
           [],
@@ -632,7 +617,7 @@ describe("turf_vault", () => {
           payer: admin.publicKey,
           creator: admin.publicKey,
           vaultState: vaultStatePda,
-          contest: newContestPda,
+          contest: dupeContestPda,
           mint: usdcMint,
           creatorTokenAccount: adminUsdcAccount,
           vaultTokenAccount: vaultUsdcPda,
@@ -645,15 +630,84 @@ describe("turf_vault", () => {
         await program.methods
           .settleContest([])
           .accountsStrict({
-            admin: user1.publicKey,
+            admin: admin.publicKey,
+            cosigner: admin.publicKey,
             vaultState: vaultStatePda,
-            contest: newContestPda,
+            contest: dupeContestPda,
+          })
+          .rpc();
+        expect.fail("Should have thrown");
+      } catch (err) {
+        expect(err.toString()).to.contain("Unauthorized");
+      }
+    });
+
+    it("rejects settlement with non-signer cosigner", async () => {
+      // Create a new contest to test with
+      const nonSignerContestId = createHash("sha256").update("non-signer-test").digest();
+      const [nonSignerContestPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("contest"), nonSignerContestId],
+        program.programId
+      );
+
+      await program.methods
+        .createContest(
+          Array.from(nonSignerContestId) as any,
+          new anchor.BN(toTokenAmount(9)),
+          5,
+          [],
+          new anchor.BN(0)
+        )
+        .accountsStrict({
+          payer: admin.publicKey,
+          creator: admin.publicKey,
+          vaultState: vaultStatePda,
+          contest: nonSignerContestPda,
+          mint: usdcMint,
+          creatorTokenAccount: adminUsdcAccount,
+          vaultTokenAccount: vaultUsdcPda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      try {
+        await program.methods
+          .settleContest([])
+          .accountsStrict({
+            admin: admin.publicKey,
+            cosigner: user1.publicKey,
+            vaultState: vaultStatePda,
+            contest: nonSignerContestPda,
           })
           .signers([user1])
           .rpc();
         expect.fail("Should have thrown");
       } catch (err) {
         expect(err.toString()).to.contain("Unauthorized");
+      }
+    });
+
+    it("rejects settling an already settled contest", async () => {
+      const [contestPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("contest"), contestId],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .settleContest([])
+          .accountsStrict({
+            admin: admin.publicKey,
+            cosigner: signer2.publicKey,
+            vaultState: vaultStatePda,
+            contest: contestPda,
+          })
+          .signers([signer2])
+          .rpc();
+        expect.fail("Should have thrown");
+      } catch (err) {
+        expect(err.toString()).to.contain("ContestAlreadySettled");
       }
     });
   });
@@ -822,39 +876,116 @@ describe("turf_vault", () => {
     });
   });
 
-  describe("backup admin", () => {
-    it("backup admin can create a contest", async () => {
-      const backupContestId = createHash("sha256").update("backup-admin-test").digest();
-      const [backupContestPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("contest"), backupContestId],
+  describe("multisig", () => {
+    it("any signer can create a contest (single-signer routine op)", async () => {
+      const signer2ContestId = createHash("sha256").update("signer2-test").digest();
+      const [signer2ContestPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("contest"), signer2ContestId],
         program.programId
       );
 
       await program.methods
         .createContest(
-          Array.from(backupContestId) as any,
+          Array.from(signer2ContestId) as any,
           new anchor.BN(toTokenAmount(9)),
           5,
           [],
           new anchor.BN(0)
         )
         .accountsStrict({
-          payer: adminBackup.publicKey,
-          creator: adminBackup.publicKey,
+          payer: signer2.publicKey,
+          creator: signer2.publicKey,
           vaultState: vaultStatePda,
-          contest: backupContestPda,
+          contest: signer2ContestPda,
           mint: usdcMint,
-          creatorTokenAccount: backupAdminUsdcAccount,
+          creatorTokenAccount: signer2UsdcAccount,
           vaultTokenAccount: vaultUsdcPda,
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
-        .signers([adminBackup])
+        .signers([signer2])
         .rpc();
 
-      const contest = await program.account.contest.fetch(backupContestPda);
+      const contest = await program.account.contest.fetch(signer2ContestPda);
       expect(contest.entryFee.toNumber()).to.equal(toTokenAmount(9));
-      expect(contest.admin.toBase58()).to.equal(adminBackup.publicKey.toBase58());
+      expect(contest.admin.toBase58()).to.equal(signer2.publicKey.toBase58());
+    });
+
+    it("update_signers with valid 2-of-3 cosign", async () => {
+      // Create a 4th keypair to swap in
+      const newSigner = Keypair.generate();
+      const fundTx = new anchor.web3.Transaction().add(
+        anchor.web3.SystemProgram.transfer({
+          fromPubkey: admin.publicKey,
+          toPubkey: newSigner.publicKey,
+          lamports: LAMPORTS_PER_SOL,
+        })
+      );
+      await provider.sendAndConfirm(fundTx);
+
+      // Update signers: replace signer3 with newSigner
+      const newSigners = [admin.publicKey, signer2.publicKey, newSigner.publicKey];
+
+      await program.methods
+        .updateSigners(newSigners, 2)
+        .accountsStrict({
+          admin: admin.publicKey,
+          cosigner: signer2.publicKey,
+          vaultState: vaultStatePda,
+        })
+        .signers([signer2])
+        .rpc();
+
+      const vault = await program.account.vaultState.fetch(vaultStatePda);
+      expect(vault.signers[0].toBase58()).to.equal(admin.publicKey.toBase58());
+      expect(vault.signers[1].toBase58()).to.equal(signer2.publicKey.toBase58());
+      expect(vault.signers[2].toBase58()).to.equal(newSigner.publicKey.toBase58());
+      expect(vault.threshold).to.equal(2);
+
+      // Restore original signers for remaining tests
+      await program.methods
+        .updateSigners([admin.publicKey, signer2.publicKey, signer3.publicKey], 2)
+        .accountsStrict({
+          admin: admin.publicKey,
+          cosigner: signer2.publicKey,
+          vaultState: vaultStatePda,
+        })
+        .signers([signer2])
+        .rpc();
+    });
+
+    it("rejects update_signers with invalid threshold", async () => {
+      try {
+        await program.methods
+          .updateSigners([admin.publicKey, signer2.publicKey, signer3.publicKey], 4)
+          .accountsStrict({
+            admin: admin.publicKey,
+            cosigner: signer2.publicKey,
+            vaultState: vaultStatePda,
+          })
+          .signers([signer2])
+          .rpc();
+        expect.fail("Should have thrown");
+      } catch (err) {
+        expect(err.toString()).to.contain("InvalidThreshold");
+      }
+    });
+
+    it("rejects update_signers with duplicate signers", async () => {
+      try {
+        await program.methods
+          .updateSigners([admin.publicKey, admin.publicKey, signer3.publicKey], 2)
+          .accountsStrict({
+            admin: admin.publicKey,
+            cosigner: signer2.publicKey,
+            vaultState: vaultStatePda,
+          })
+          .signers([signer2])
+          .rpc();
+        expect.fail("Should have thrown");
+      } catch (err) {
+        expect(err.toString()).to.contain("DuplicateSigner");
+      }
     });
   });
 });

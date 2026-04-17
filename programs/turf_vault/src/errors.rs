@@ -18,14 +18,18 @@ pub enum VaultError {
     ContestAlreadySettled,
     #[msg("User already entered this contest with this entry number")]
     DuplicateEntry,
-    #[msg("Settlement payouts exceed prize pool plus bonus")]
+    #[msg("Settlement payouts exceed entry fees plus prizes")]
     SettlementOverflow,
     #[msg("Arithmetic overflow")]
     Overflow,
-    #[msg("Payout amounts must sum to bonus amount")]
+    #[msg("Payout amounts must sum to prizes amount")]
     InvalidPayoutTiers,
     #[msg("Account is already larger than expected — cannot migrate")]
     AccountAlreadyMigrated,
     #[msg("Account data is invalid or has wrong discriminator")]
     InvalidAccountData,
+    #[msg("Invalid threshold: must be 1-3")]
+    InvalidThreshold,
+    #[msg("Duplicate signer in signers array")]
+    DuplicateSigner,
 }

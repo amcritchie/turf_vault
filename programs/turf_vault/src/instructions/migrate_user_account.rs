@@ -16,7 +16,7 @@ pub struct MigrateUserAccount<'info> {
     #[account(
         seeds = [b"vault"],
         bump,
-        constraint = vault_state.is_admin(&admin.key()) @ VaultError::Unauthorized,
+        constraint = vault_state.is_signer(&admin.key()) @ VaultError::Unauthorized,
     )]
     pub vault_state: Account<'info, VaultState>,
 

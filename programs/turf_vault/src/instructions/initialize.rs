@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
 use crate::state::VaultState;
+use crate::errors::VaultError;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -44,16 +45,20 @@ pub struct Initialize<'info> {
     pub rent: Sysvar<'info, Rent>,
 }
 
-pub fn handle_initialize(ctx: Context<Initialize>, admin_backup: Pubkey) -> Result<()> {
+pub fn handle_initialize(ctx: Context<Initialize>, signers: [Pubkey; 3], threshold: u8) -> Result<()> {
+    require!(threshold >= 1 && threshold <= 3, VaultError::InvalidThreshold);
+    require!(signers[0] != signers[1] && signers[0] != signers[2] && signers[1] != signers[2], VaultError::DuplicateSigner);
+    require!(signers.contains(&ctx.accounts.admin.key()), VaultError::Unauthorized);
+
     let vault = &mut ctx.accounts.vault_state;
-    vault.admin = ctx.accounts.admin.key();
-    vault.admin_backup = admin_backup;
+    vault.signers = signers;
+    vault.threshold = threshold;
     vault.usdc_mint = ctx.accounts.usdc_mint.key();
     vault.usdt_mint = ctx.accounts.usdt_mint.key();
     vault.vault_usdc = ctx.accounts.vault_usdc.key();
     vault.vault_usdt = ctx.accounts.vault_usdt.key();
     vault.bump = ctx.bumps.vault_state;
 
-    msg!("Vault initialized. Admin: {}, Backup: {}", vault.admin, vault.admin_backup);
+    msg!("Vault initialized. Signers: [{}, {}, {}], Threshold: {}", signers[0], signers[1], signers[2], threshold);
     Ok(())
 }

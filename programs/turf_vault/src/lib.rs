@@ -12,8 +12,8 @@ declare_id!("7Hy8GmJWPMdt6bx3VG4BLFnpNX9TBwkPt87W6bkHgr2J");
 pub mod turf_vault {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>, admin_backup: Pubkey) -> Result<()> {
-        handle_initialize(ctx, admin_backup)
+    pub fn initialize(ctx: Context<Initialize>, signers: [Pubkey; 3], threshold: u8) -> Result<()> {
+        handle_initialize(ctx, signers, threshold)
     }
 
     pub fn force_close_vault(ctx: Context<ForceCloseVault>) -> Result<()> {
@@ -38,9 +38,9 @@ pub mod turf_vault {
         entry_fee: u64,
         max_entries: u32,
         payout_amounts: Vec<u64>,
-        bonus: u64,
+        prizes: u64,
     ) -> Result<()> {
-        handle_create_contest(ctx, contest_id, entry_fee, max_entries, payout_amounts, bonus)
+        handle_create_contest(ctx, contest_id, entry_fee, max_entries, payout_amounts, prizes)
     }
 
     pub fn enter_contest(ctx: Context<EnterContest>, entry_num: u32) -> Result<()> {
@@ -61,5 +61,9 @@ pub mod turf_vault {
 
     pub fn migrate_user_account(ctx: Context<MigrateUserAccount>) -> Result<()> {
         handle_migrate_user_account(ctx)
+    }
+
+    pub fn update_signers(ctx: Context<UpdateSigners>, new_signers: [Pubkey; 3], new_threshold: u8) -> Result<()> {
+        handle_update_signers(ctx, new_signers, new_threshold)
     }
 }

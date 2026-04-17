@@ -88,7 +88,7 @@ pub fn handle_enter_contest_direct(ctx: Context<EnterContestDirect>, entry_num: 
     token::transfer(cpi_ctx, contest.entry_fee)?;
 
     // Update contest state
-    contest.prize_pool = contest.prize_pool.checked_add(contest.entry_fee).ok_or(VaultError::Overflow)?;
+    contest.entry_fees = contest.entry_fees.checked_add(contest.entry_fee).ok_or(VaultError::Overflow)?;
     contest.current_entries = contest.current_entries.checked_add(1).ok_or(VaultError::Overflow)?;
 
     // Award 65 seeds
@@ -106,11 +106,11 @@ pub fn handle_enter_contest_direct(ctx: Context<EnterContestDirect>, entry_num: 
     entry.bump = ctx.bumps.contest_entry;
 
     msg!(
-        "Direct entry {} for wallet {} in contest. Fee: {}, Pool: {}",
+        "Direct entry {} for wallet {} in contest. Fee: {}, Entry fees: {}",
         entry_num,
         entry.wallet,
         contest.entry_fee,
-        contest.prize_pool
+        contest.entry_fees
     );
     Ok(())
 }

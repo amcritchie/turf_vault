@@ -51,8 +51,8 @@ pub fn handle_enter_contest(ctx: Context<EnterContest>, entry_num: u32) -> Resul
     require!(user.balance >= contest.entry_fee, VaultError::InsufficientBalance);
     user.balance = user.balance.checked_sub(contest.entry_fee).ok_or(VaultError::Overflow)?;
 
-    // Add to prize pool
-    contest.prize_pool = contest.prize_pool.checked_add(contest.entry_fee).ok_or(VaultError::Overflow)?;
+    // Add to entry fees collected
+    contest.entry_fees = contest.entry_fees.checked_add(contest.entry_fee).ok_or(VaultError::Overflow)?;
     contest.current_entries = contest.current_entries.checked_add(1).ok_or(VaultError::Overflow)?;
 
     // Award 65 seeds
@@ -69,10 +69,10 @@ pub fn handle_enter_contest(ctx: Context<EnterContest>, entry_num: u32) -> Resul
     entry.bump = ctx.bumps.contest_entry;
 
     msg!(
-        "Entry {} for wallet {} in contest. Pool: {}",
+        "Entry {} for wallet {} in contest. Entry fees: {}",
         entry_num,
         entry.wallet,
-        contest.prize_pool
+        contest.entry_fees
     );
     Ok(())
 }

@@ -8,47 +8,73 @@ Anchor smart contract for contest escrow on Solana. Backend for Turf Monster (Ra
 - **Framework**: Anchor 0.32.1
 - **Rust**: 1.89.0 (via `rust-toolchain.toml`)
 - **Network**: Localnet (dev), Devnet (staging)
-- **Version**: 0.7.0
+- **Version**: 0.8.0
 
 ## File Layout
 
 ```
 programs/turf_vault/src/
-├── lib.rs              # Program entry — 11 instruction handlers (thin wrappers)
-├── state.rs            # 4 account structs + 2 enums + VaultState::is_admin()
-├── errors.rs           # 11 error codes (VaultError enum)
+├── lib.rs              # Program entry — 12 instruction handlers (thin wrappers)
+├── state.rs            # 4 account structs + 2 enums + multisig helpers
+├── errors.rs           # 13 error codes (VaultError enum)
 └── instructions/
     ├── mod.rs           # Re-exports all instruction modules
-    ├── initialize.rs    # Vault setup, token account init, accepts admin_backup
+    ├── initialize.rs    # Vault setup, accepts signers[3] + threshold
     ├── create_user_account.rs
     ├── deposit.rs       # User → vault token transfer via CPI
     ├── withdraw.rs      # Vault → user token transfer via PDA signer
     ├── create_contest.rs
     ├── enter_contest.rs # Debit PDA balance, build prize pool (managed wallets)
     ├── enter_contest_direct.rs # User signs USDC transfer from wallet ATA (Phantom wallets)
-    ├── settle_contest.rs # remaining_accounts pattern, manual PDA verify
+    ├── settle_contest.rs # remaining_accounts pattern, requires cosigner (2-of-3)
     ├── close_contest.rs
-    └── force_close_vault.rs # Migration-only: closes old vault for re-init
+    ├── force_close_vault.rs # Migration-only: requires cosigner (2-of-3)
+    └── update_signers.rs # Update multisig signers/threshold (2-of-3)
 tests/
-└── turf_vault.ts       # 20 test cases covering all instructions + dual admin
+└── turf_vault.ts       # 25 test cases covering all instructions + multisig
 Anchor.toml             # Program ID, cluster config, test script
 ```
 
-## Dual Admin System
+## 2-of-3 Multisig System
 
-VaultState stores both `admin` (primary) and `admin_backup` pubkeys. The `is_admin()` helper checks both:
+VaultState stores `signers: [Pubkey; 3]` and `threshold: u8`. Two authorization levels:
 
 ```rust
-pub fn is_admin(&self, key: &Pubkey) -> bool {
-    self.admin == *key || self.admin_backup == *key
+// Any 1-of-3 for routine ops (create contest, close contest, enter, migrate)
+pub fn is_signer(&self, key: &Pubkey) -> bool {
+    self.signers.contains(key)
+}
+
+// 2-of-3 for treasury ops (settle, force_close, update_signers)
+pub fn validate_multisig(&self, s1: &Pubkey, s2: &Pubkey) -> bool {
+    s1 != s2 && self.is_signer(s1) && self.is_signer(s2)
 }
 ```
 
-- **Primary admin (Alex Bot)**: `F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ` — used for all operations (create, lock, settle)
-- **Backup admin (Alex Human)**: `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr` — recovery key only
-- `initialize` accepts `admin_backup: Pubkey` argument
-- `create_contest`, `settle_contest`, `close_contest` all use `vault_state.is_admin()` constraint
-- `force_close_vault` reads admin from raw bytes (for migrating old-schema vaults)
+### Signers
+| # | Role | Address |
+|---|------|---------|
+| 1 | Alex Bot (server) | `F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ` |
+| 2 | Alex (human) | `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr` |
+| 3 | Mason | `CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR` |
+
+### Authorization by Instruction
+| Instruction | Auth Level | Notes |
+|-------------|-----------|-------|
+| `create_contest` | 1-of-3 | Any signer can create |
+| `close_contest` | 1-of-3 | Any signer can close |
+| `enter_contest` / `enter_contest_direct` | 1-of-3 | Any signer can facilitate entries |
+| `migrate_user_account` | 1-of-3 | Any signer can migrate |
+| `settle_contest` | **2-of-3** | Requires `admin` + `cosigner` |
+| `force_close_vault` | **2-of-3** | Requires `admin` + `cosigner` |
+| `update_signers` | **2-of-3** | Requires `admin` + `cosigner` |
+
+### Co-signing Flow (Treasury Operations)
+1. Server (Alex Bot) builds TX and partially signs as `admin`
+2. PendingTransaction record created in Rails with serialized TX
+3. Human (Alex or Mason) opens Treasury admin page, connects Phantom
+4. Phantom signs as `cosigner`, submits to Solana
+5. Rails records TX signature and marks operation complete
 
 ## Anchor Patterns
 
@@ -90,12 +116,12 @@ All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout
 - `wallet`, `balance`, `total_deposited`, `total_withdrawn`, `total_won`, `seeds` (u64, 65 per entry), `bump`
 
 ### Contest Fields
-- `contest_id`, `entry_fee`, `max_entries`, `current_entries`, `prize_pool`, `bonus`, `status`, `payout_amounts` (Vec, max 10), `admin` (payer pubkey), `creator` (bonus funder pubkey), `bump`
+- `contest_id`, `prizes`, `entry_fee`, `entry_fees`, `max_entries`, `current_entries`, `status`, `payout_amounts` (Vec, max 10), `admin` (payer pubkey), `creator` (prizes funder pubkey), `bump`
 
 ### Key Constraints
 - All token amounts: `u64` with 6 decimals (1 USDC = 1_000_000)
-- `payout_amounts` sum must equal `bonus` (validated in create_contest)
-- Settlement total payouts must be ≤ prize_pool + bonus
+- `payout_amounts` sum must equal `prizes` (validated in create_contest)
+- Settlement total payouts must be ≤ entry_fees + prizes
 - All arithmetic uses `checked_add`/`checked_sub`
 
 ## Error Codes
@@ -110,9 +136,13 @@ All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout
 | 6005 | ContestNotSettled | Close unsettled contest |
 | 6006 | ContestAlreadySettled | Settle already-settled contest |
 | 6007 | DuplicateEntry | Same entry_num (PDA collision) |
-| 6008 | SettlementOverflow | Payouts > pool + bonus |
+| 6008 | SettlementOverflow | Payouts > entry_fees + prizes |
 | 6009 | Overflow | Arithmetic overflow |
 | 6010 | InvalidPayoutTiers | Bad payout_amounts config |
+| 6011 | InvalidAccountData | Account data parsing failed |
+| 6012 | MigrationNotNeeded | Account already at current size |
+| 6013 | InvalidThreshold | Threshold must be 1-3 |
+| 6014 | DuplicateSigner | Duplicate signer in array |
 
 ## Testing
 
@@ -121,20 +151,20 @@ All accounts use `#[derive(InitSpace)]`. Contest has `#[max_len(10)]` on `payout
 anchor test
 ```
 
-20 tests covering: initialize (with admin_backup), create_user_account, deposit (USDC/USDT + invalid mint), create_contest (admin with bonus USDC transfer + non-admin rejection), enter_contest (2 users + insufficient balance), settle_contest (payouts + already-settled + non-admin), withdraw (success + insufficient balance), close_contest (settled + unsettled), backup admin (can create contest). Tests use SOL transfers from admin instead of `requestAirdrop` (broken in Solana v3.1).
+25 tests covering: initialize (with 3 signers + threshold), create_user_account, deposit (USDC/USDT + invalid mint), create_contest (admin with bonus USDC transfer + non-admin rejection), enter_contest (2 users + insufficient balance), settle_contest (payouts with cosigner + already-settled + non-admin + same-signer-twice + non-signer-cosigner), withdraw (success + insufficient balance), close_contest (settled + unsettled), any signer can create contest, update_signers (valid + invalid threshold). Tests use SOL transfers from admin instead of `requestAirdrop` (broken in Solana v3.1).
 
 ### Test Setup Pattern
 ```typescript
-// Initialize with backup admin
+// Initialize with 3 signers, threshold 2
 await program.methods
-  .initialize(adminBackup.publicKey)
+  .initialize([admin.publicKey, signer2.publicKey, signer3.publicKey], 2)
   .accountsStrict({ ... })
   .rpc();
 
-// Verify both admin fields
+// Verify signers and threshold
 const vault = await program.account.vaultState.fetch(vaultStatePda);
-expect(vault.admin.toBase58()).to.equal(admin.publicKey.toBase58());
-expect(vault.adminBackup.toBase58()).to.equal(adminBackup.publicKey.toBase58());
+expect(vault.signers[0].toBase58()).to.equal(admin.publicKey.toBase58());
+expect(vault.threshold).to.equal(2);
 ```
 
 ## Prerequisites
@@ -190,20 +220,22 @@ When the VaultState schema changes (e.g. adding `admin_backup`), the old account
 ```bash
 # From Rails app:
 bin/rails solana:init_vault FORCE_CLOSE=true
-bin/rails solana:init_vault INIT=true ADMIN_BACKUP=<backup_admin_base58>
+bin/rails solana:init_vault INIT=true SIGNERS=addr1,addr2,addr3 THRESHOLD=2
 ```
 
 ### Current Deployment (Devnet)
 
 - **Program ID**: `7Hy8GmJWPMdt6bx3VG4BLFnpNX9TBwkPt87W6bkHgr2J`
 - **Vault PDA**: `7z313HTVNcxhvCBkkDQv794RpXeRrfCLb5WJ4dFAQQeh`
-- **Admin (primary)**: Alex Bot — `F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ`
-- **Admin (backup)**: Alex Human — `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`
+- **Signer 1**: Alex Bot — `F6f8h5yynbnkgWvU5abQx3RJxJpe8EoQmeFBuNKdKzhZ`
+- **Signer 2**: Alex — `7ZDJp7FUHhuceAqcW9CHe81hCiaMTjgWAXfprBM59Tcr`
+- **Signer 3**: Mason — `CytJS23p1zCM2wvUUngiDePtbMB484ebD7bK4nDqWjrR`
+- **Threshold**: 2-of-3 for treasury ops
 - **USDC Mint**: `222Dcu2RgAXE3T8A4mGSG3kQyXaNjqePx7vva1RdWBN9` (test, 6 decimals)
 - **USDT Mint**: `9mxkN8KaVA8FFgDE2LEsn2UbYLPG8Xg9bf4V9MYYi8Ne` (test, 6 decimals)
 - **IDL Account**: `DCP2XRu8ZwzsCpXBgu5xa4vTYdYQhKUZRU49iJuFv8Lf`
 
-**Status**: v0.7.0 deployed on devnet. Seeds field added to UserAccount (65 per entry since v0.7.0). Vault re-initialized. Mint authorities (USDC + USDT) transferred to Alex Bot.
+**Status**: v0.8.0 deployed on devnet. 2-of-3 multisig for treasury ops. Vault re-initialized with 3 signers (Alex Bot, Alex, Mason), threshold 2.
 
 ## Versioning Protocol
 
@@ -232,13 +264,14 @@ The Rails app calls TurfVault through a `Solana::Vault` service layer:
 
 - **Managed entry** (`enter_contest`): Separates payer (admin signer) from wallet (entry owner) — deducts from UserAccount PDA balance. For server-managed wallets.
 - **Direct entry** (`enter_contest_direct`): User signs USDC transfer from their own wallet ATA to vault. Admin pays PDA rent so user only spends USDC. For Phantom wallets. Added in v0.3.0. Requires `user_account` PDA (for seeds award) since v0.5.0.
-- **Hard escrow contest creation** (`create_contest` v0.4.0): Dual-signer — `payer` (admin bot, pays SOL rent) + `creator` (Phantom wallet, signs bonus USDC transfer from creator ATA → vault). Contest struct stores `creator` pubkey. If bonus is 0, no transfer occurs but token accounts are still required.
+- **Hard escrow contest creation** (`create_contest` v0.4.0): Dual-signer — `payer` (admin bot, pays SOL rent) + `creator` (Phantom wallet, signs prizes USDC transfer from creator ATA → vault). Contest struct stores `creator` pubkey. If prizes is 0, no transfer occurs but token accounts are still required.
 - **No lock instruction**: Contest can go directly from Open to Settled (Locked status exists but no instruction sets it yet)
-- **Dual admin**: Primary admin for operations, backup admin for recovery. Both can perform any admin action.
+- **2-of-3 Multisig** (v0.8.0): Treasury ops require 2 distinct signers (`admin` + `cosigner`). Routine ops require any 1-of-3. Server partially signs, human cosigns via Phantom.
 - **Dual mint**: USDC + USDT supported from day one, separate vault token accounts
 - **Seeds system** (v0.5.0, updated v0.7.0): Both `enter_contest` and `enter_contest_direct` award 65 seeds to the user's `UserAccount` PDA. Seeds are on-chain only — Rails reads them via `sync_balance` and derives levels in the UI (`level = seeds / 100 + 1`).
 - **Manual settlement**: No on-chain scoring — Rails computes results, admin submits final rankings
-- **force_close_vault**: Migration instruction that reads admin from raw bytes (avoids deserialization of old schema)
+- **force_close_vault**: Migration instruction that reads signers from raw bytes (avoids deserialization of old schema). Requires 2-of-3 cosign.
+- **update_signers** (v0.8.0): Rotate signers or change threshold. Requires 2-of-3 cosign.
 
 ## Code Style
 
