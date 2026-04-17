@@ -391,6 +391,7 @@ describe("turf_vault", () => {
         .accountsStrict({
           payer: admin.publicKey,
           wallet: user1.publicKey,
+          vaultState: vaultStatePda,
           userAccount: userAccountPda,
           contest: contestPda,
           contestEntry: entryPda,
@@ -444,6 +445,7 @@ describe("turf_vault", () => {
         .accountsStrict({
           payer: admin.publicKey,
           wallet: user2.publicKey,
+          vaultState: vaultStatePda,
           userAccount: userAccountPda,
           contest: contestPda,
           contestEntry: entryPda,
@@ -509,6 +511,7 @@ describe("turf_vault", () => {
           .accountsStrict({
             payer: admin.publicKey,
             wallet: brokeUser.publicKey,
+            vaultState: vaultStatePda,
             userAccount: brokeUserPda,
             contest: contestPda,
             contestEntry: entryPda,

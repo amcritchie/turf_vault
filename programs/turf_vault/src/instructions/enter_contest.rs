@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::state::{UserAccount, Contest, ContestEntry, ContestStatus, EntryStatus};
+use crate::state::{VaultState, UserAccount, Contest, ContestEntry, ContestStatus, EntryStatus};
 use crate::errors::VaultError;
 
 #[derive(Accounts)]
@@ -11,6 +11,13 @@ pub struct EnterContest<'info> {
     /// The wallet that owns the user account (may differ from payer for custodial)
     /// CHECK: Validated via user_account PDA seeds
     pub wallet: UncheckedAccount<'info>,
+
+    #[account(
+        seeds = [b"vault"],
+        bump = vault_state.bump,
+        constraint = vault_state.is_signer(&payer.key()) @ VaultError::Unauthorized,
+    )]
+    pub vault_state: Account<'info, VaultState>,
 
     #[account(
         mut,
